@@ -1,0 +1,12 @@
+{
+  "name": "report-generator",
+  "display": "报告生成",
+  "description": "将研究素材整理为统一格式的研究报告",
+  "trigger_patterns": ["生成报告", "整理报告", "汇总", "报告格式", "统一报告"],
+  "required_args": ["source"],
+  "cli_invoke": "/report-generator --source \"{source}\" --topic \"{topic}\"",
+  "produces": "统一格式报告（Markdown）",
+  "estimated_time": "1-2 分钟",
+  "depends_on": ["web-research | url-research | local-research"],
+  "output_pattern": "output/reports/*_report.md"
+}

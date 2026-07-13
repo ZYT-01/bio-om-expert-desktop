@@ -1,0 +1,12 @@
+{
+  "name": "local-research",
+  "display": "本地文档分析",
+  "description": "分析本地文档（PDF/Word/Excel等）并生成研究报告",
+  "trigger_patterns": ["分析文档", "分析文件", "本地文件", "PDF分析", "Word分析", "Excel分析", "文档分析"],
+  "required_args": ["file_path"],
+  "cli_invoke": "/local-research \"{topic}\" --file \"{file_path}\"",
+  "produces": "文档分析报告（Markdown）",
+  "estimated_time": "1-3 分钟",
+  "depends_on": [],
+  "output_pattern": "output/reports/*_report.md"
+}

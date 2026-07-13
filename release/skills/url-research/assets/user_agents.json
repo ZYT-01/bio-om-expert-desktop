@@ -1,0 +1,32 @@
+{
+  "default": "Bio-OM-Expert/1.0 (URL Research; compliance@bio-om-expert.com)",
+  "rotation_pool": [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+  ],
+  "rotation_strategy": "random",
+  "platform_specific": {
+    "zhihu.com": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      "Cookie": "[REQUIRED] 需登录后提供 Cookie",
+      "notes": "知乎需登录后抓取完整内容，建议使用动态渲染"
+    },
+    "mp.weixin.qq.com": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      "notes": "微信公众号文章需注意反爬机制"
+    },
+    "weibo.com": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      "notes": "微博页面多为动态渲染，建议使用 Playwright"
+    }
+  },
+  "request_delay_ms": {
+    "min": 1000,
+    "max": 3000,
+    "strategy": "random"
+  },
+  "max_retries": 3,
+  "retry_backoff_ms": 5000
+}

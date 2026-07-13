@@ -1,0 +1,12 @@
+{
+  "name": "content-writing",
+  "display": "文案撰写与视频脚本",
+  "description": "基于研究报告撰写公众号推文、视频脚本、口播稿、互动设计",
+  "trigger_patterns": ["写推文", "写文章", "公众号", "视频脚本", "口播稿", "科普", "推文", "写稿", "内容创作", "短视频", "文案"],
+  "required_args": ["topic"],
+  "cli_invoke": "/content-writing --report \"{report}\" --topic \"{topic}\" --duration 180 --platform long",
+  "produces": "推文草稿 + 视频脚本 + 口播稿 + 互动设计（Markdown）",
+  "estimated_time": "3-5 分钟",
+  "depends_on": ["report-generator | web-research"],
+  "output_pattern": "output/drafts/**/*.md"
+}

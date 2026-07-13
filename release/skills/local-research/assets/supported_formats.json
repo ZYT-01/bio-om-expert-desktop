@@ -1,0 +1,78 @@
+{
+  "formats": {
+    ".md": {
+      "type": "markdown",
+      "parser": "direct_read",
+      "encoding": "utf-8",
+      "description": "Markdown文档"
+    },
+    ".txt": {
+      "type": "text",
+      "parser": "direct_read",
+      "encoding": "detect",
+      "description": "纯文本文件"
+    },
+    ".pdf": {
+      "type": "pdf",
+      "parser": "pdf_extractor",
+      "fallback": "ocr",
+      "description": "PDF文档",
+      "max_size_mb": 100,
+      "ocr_languages": ["chi_sim", "eng"]
+    },
+    ".docx": {
+      "type": "office",
+      "parser": "office_parser",
+      "library": "python-docx",
+      "description": "Word文档"
+    },
+    ".xlsx": {
+      "type": "office",
+      "parser": "office_parser",
+      "library": "openpyxl",
+      "description": "Excel表格",
+      "extract_formulas": false
+    },
+    ".pptx": {
+      "type": "office",
+      "parser": "office_parser",
+      "library": "python-pptx",
+      "description": "PowerPoint演示文稿"
+    },
+    ".csv": {
+      "type": "data",
+      "parser": "direct_read",
+      "encoding": "utf-8",
+      "description": "CSV数据文件"
+    },
+    ".json": {
+      "type": "data",
+      "parser": "direct_read",
+      "encoding": "utf-8",
+      "description": "JSON数据文件"
+    },
+    ".html": {
+      "type": "web",
+      "parser": "direct_read",
+      "extract_text_only": true,
+      "description": "HTML网页文件"
+    },
+    ".xml": {
+      "type": "data",
+      "parser": "direct_read",
+      "encoding": "utf-8",
+      "description": "XML数据文件"
+    }
+  },
+  "skip_patterns": [
+    "~$*",
+    ".*.swp",
+    "Thumbs.db",
+    ".DS_Store",
+    "*.tmp",
+    "*.temp"
+  ],
+  "max_file_size_mb": 200,
+  "default_encoding": "utf-8",
+  "fallback_encodings": ["gbk", "gb2312", "big5", "shift_jis", "latin-1"]
+}

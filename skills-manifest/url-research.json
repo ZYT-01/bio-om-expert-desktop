@@ -1,0 +1,12 @@
+{
+  "name": "url-research",
+  "display": "链接分析研究",
+  "description": "分析指定 URL 内容并生成研究报告",
+  "trigger_patterns": ["分析这个链接", "分析这篇文章", "看看这个网址", "链接分析", "URL分析"],
+  "required_args": ["urls"],
+  "cli_invoke": "/url-research \"{topic}\" --urls \"{urls}\"",
+  "produces": "URL 分析报告（Markdown）",
+  "estimated_time": "2-5 分钟",
+  "depends_on": [],
+  "output_pattern": "output/reports/*_report.md"
+}

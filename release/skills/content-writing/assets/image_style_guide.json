@@ -1,0 +1,46 @@
+{
+  "brand_color": {
+    "primary": "#0071e3",
+    "secondary": "#1a1a2e",
+    "accent": "#00d4ff",
+    "background": "#0d1117",
+    "text": "#e6edf3"
+  },
+  "style_keywords": [
+    "scientific illustration",
+    "clean laboratory aesthetic",
+    "high resolution",
+    "4k",
+    "professional biotechnology visualization",
+    "minimalist",
+    "accurate representation"
+  ],
+  "default_aspect_ratio": "16:9",
+  "common_elements": {
+    "fonts": ["Inter", "Helvetica Neue", "Arial"],
+    "lighting": "soft technological lighting",
+    "background": "dark blue gradient or pure dark"
+  },
+  "category_specific": {
+    "原理示意图": {
+      "style": "3D scientific illustration, cross-section view",
+      "ratio": "16:9"
+    },
+    "数据对比图": {
+      "style": "clean bar chart or infographic, minimal grid lines",
+      "ratio": "16:9"
+    },
+    "流程步骤图": {
+      "style": "flowchart with icons, connected by arrows, clean design",
+      "ratio": "16:9"
+    },
+    "概念模型图": {
+      "style": "isometric view, labeled components, professional journal style",
+      "ratio": "16:9"
+    },
+    "场景应用图": {
+      "style": "realistic laboratory setting, researcher operating equipment, candid lighting",
+      "ratio": "16:9"
+    }
+  }
+}

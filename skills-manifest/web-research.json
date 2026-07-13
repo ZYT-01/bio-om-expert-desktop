@@ -1,0 +1,12 @@
+{
+  "name": "web-research",
+  "display": "全网搜索研究",
+  "description": "执行全网搜索并生成研究报告",
+  "trigger_patterns": ["搜索", "研究", "调研", "热点", "行业动态", "竞品分析", "市场研究", "查一下", "找资料", "最新进展"],
+  "required_args": ["topic"],
+  "cli_invoke": "/web-research \"{topic}\"",
+  "produces": "研究报告（Markdown）",
+  "estimated_time": "3-8 分钟",
+  "depends_on": [],
+  "output_pattern": "output/reports/*_report.md"
+}

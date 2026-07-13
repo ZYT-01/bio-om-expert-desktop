@@ -1,0 +1,73 @@
+{
+  "search_engines": {
+    "baidu": {
+      "base_url": "https://www.baidu.com/s",
+      "param": "wd",
+      "rate_limit_ms": 2000,
+      "max_results_per_query": 50,
+      "enabled": true
+    },
+    "google": {
+      "base_url": "https://www.google.com/search",
+      "param": "q",
+      "rate_limit_ms": 3000,
+      "max_results_per_query": 100,
+      "enabled": true
+    },
+    "bing": {
+      "base_url": "https://www.bing.com/search",
+      "param": "q",
+      "rate_limit_ms": 1500,
+      "max_results_per_query": 50,
+      "enabled": true
+    }
+  },
+  "industry_platforms": [
+    {
+      "name": "生物谷",
+      "url": "https://www.biovalley.cn",
+      "search_endpoint": "/search",
+      "category": "industry_news"
+    },
+    {
+      "name": "医药魔方",
+      "url": "https://www.pharmacube.com",
+      "search_endpoint": "/search",
+      "category": "industry_data"
+    },
+    {
+      "name": "BioRxiv",
+      "url": "https://www.biorxiv.org",
+      "search_endpoint": "/search",
+      "category": "preprint"
+    },
+    {
+      "name": "Nature Biotechnology",
+      "url": "https://www.nature.com/nbt",
+      "search_endpoint": "/search",
+      "category": "journal"
+    }
+  ],
+  "social_platforms": [
+    {
+      "name": "微信公众号",
+      "search_method": "sogou_weixin",
+      "rate_limit_ms": 5000
+    },
+    {
+      "name": "知乎",
+      "search_endpoint": "https://www.zhihu.com/search",
+      "rate_limit_ms": 2000
+    },
+    {
+      "name": "微博",
+      "search_endpoint": "https://s.weibo.com/weibo",
+      "rate_limit_ms": 2000
+    }
+  ],
+  "default_depth": "standard",
+  "request_headers": {
+    "User-Agent": "Bio-OM-Expert/1.0 (Research Bot; compliance@bio-om-expert.com)",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+  }
+}
