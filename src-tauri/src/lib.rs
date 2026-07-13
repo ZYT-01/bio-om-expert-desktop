@@ -8,7 +8,9 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
-const BASE_OUTPUT_DIR: &str = "/tmp/bio-om-output";
+fn base_output_dir() -> PathBuf {
+    std::env::temp_dir().join("bio-om-output")
+}
 
 // ── Skill Manifest (embedded at compile time) ──
 
@@ -110,7 +112,8 @@ fn make_run_dir(topic: &str) -> String {
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let safe_topic: String = topic.chars().take(20)
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
-    let dir = format!("{}/{}_{}", BASE_OUTPUT_DIR, safe_topic, ts);
+    let base = base_output_dir().to_string_lossy().to_string();
+    let dir = format!("{}/{}_{}", base, safe_topic, ts);
     fs::create_dir_all(&dir).ok();
     dir
 }
