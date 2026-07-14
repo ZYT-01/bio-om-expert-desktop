@@ -11,8 +11,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
-      - run: npm install -g @tauri-apps/cli
-      - run: cargo tauri build --bundles dmg
+      - run: npm install @tauri-apps/cli
+      - run: npx tauri build --bundles dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
@@ -25,8 +25,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
-      - run: npm install -g @tauri-apps/cli
-      - run: cargo tauri build --bundles msi
+      - run: npm install @tauri-apps/cli
+      - run: npx tauri build --bundles msi
       - uses: actions/upload-artifact@v4
         with:
           name: windows-msi
