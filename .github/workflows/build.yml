@@ -11,8 +11,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
-      - uses: taiki-e/install-action@v2
-        with: { tool: cargo-tauri }
+      - run: npm install -g @tauri-apps/cli
       - run: cargo tauri build --bundles dmg
       - uses: actions/upload-artifact@v4
         with:
@@ -26,8 +25,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
-      - uses: taiki-e/install-action@v2
-        with: { tool: cargo-tauri }
+      - run: npm install -g @tauri-apps/cli
       - run: cargo tauri build --bundles msi
       - uses: actions/upload-artifact@v4
         with:
