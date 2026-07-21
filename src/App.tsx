@@ -282,6 +282,8 @@ function App() {
             <input type="text" value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
+                // Ignore IME composition (Chinese/Japanese/Korean input)
+                if (e.isComposing || e.key === "Process" || e.keyCode === 229) return;
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   done ? handleRevise() : handleRun();

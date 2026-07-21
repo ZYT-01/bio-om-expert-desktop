@@ -503,20 +503,34 @@ async fn run_pipeline(
             *state.active_pid.lock().unwrap() = Some(child.id());
 
             if let Some(stdout) = child.stdout.take() {
+                let mut reader = BufReader::new(stdout);
                 let mut line_count = 0u32;
-                for line in BufReader::new(stdout).lines().flatten() {
-                    seen_lines.push(line.clone());
-                    if seen_lines.len() > 200 { seen_lines.remove(0); }
-                    line_count += 1;
-                    if line_count % 20 == 0 {
-                        let sub_progress = ((line_count / 20) as u32).min(90);
-                        global_step = skill_base + sub_progress;
-                        let _ = app_handle.emit("skill-progress", serde_json::json!({
-                            "step": global_step, "total": total_steps,
-                            "name": format!("{} ({}行输出)", step.display, line_count),
-                        }).to_string());
+                let mut buf = String::new();
+                loop {
+                    // Check cancellation between reads
+                    if !*state.running.lock().unwrap() { all_success = false; break; }
+                    buf.clear();
+                    match reader.read_line(&mut buf) {
+                        Ok(0) => break, // EOF
+                        Ok(_) => {
+                            let line = buf.trim_end_matches(|c| c == '\n' || c == '\r').to_string();
+                            if !line.is_empty() {
+                                seen_lines.push(line.clone());
+                                if seen_lines.len() > 200 { seen_lines.remove(0); }
+                                line_count += 1;
+                                if line_count % 20 == 0 {
+                                    let sub_progress = ((line_count / 20) as u32).min(90);
+                                    global_step = skill_base + sub_progress;
+                                    let _ = app_handle.emit("skill-progress", serde_json::json!({
+                                        "step": global_step, "total": total_steps,
+                                        "name": format!("{} ({}行输出)", step.display, line_count),
+                                    }).to_string());
+                                }
+                                let _ = app_handle.emit("skill-output", &line);
+                            }
+                        }
+                        Err(_) => break,
                     }
-                    let _ = app_handle.emit("skill-output", &line);
                 }
             }
 
@@ -601,11 +615,11 @@ async fn run_pipeline(
 #[tauri::command]
 async fn revise_output(
     app: AppHandle,
-    state: State<'_, AppState>,
     output_dir: String,
     instruction: String,
 ) -> Result<String, String> {
     {
+        let state = app.state::<AppState>();
         let mut running = state.running.lock().map_err(|e| e.to_string())?;
         if *running { return Err("已有任务正在运行".to_string()); }
         *running = true;
@@ -634,7 +648,16 @@ async fn revise_output(
         dir = output_dir, files = file_list, instruction = instruction
     );
 
+    // Increment run_id for cancellation tracking
+    let my_run_id = {
+        let state = app_handle.state::<AppState>();
+        let mut id = state.run_id.lock().unwrap();
+        *id = id.wrapping_add(1);
+        *id
+    };
+
     std::thread::spawn(move || {
+        let state = app_handle.state::<AppState>();
         let mut seen_lines: Vec<String> = Vec::new();
         let mut child = match Command::new("claude")
             .arg("-p").arg(&prompt).arg("--output-format").arg("text")
@@ -643,23 +666,38 @@ async fn revise_output(
             Ok(c) => c,
             Err(e) => {
                 let _ = app_handle.emit("skill-error", format!("启动修改失败: {}", e));
+                *state.running.lock().unwrap() = false;
                 return;
             }
         };
+        *state.active_pid.lock().unwrap() = Some(child.id());
 
         if let Some(stdout) = child.stdout.take() {
+            let mut reader = BufReader::new(stdout);
             let mut line_count = 0u32;
-            for line in BufReader::new(stdout).lines().flatten() {
-                seen_lines.push(line.clone());
-                if seen_lines.len() > 200 { seen_lines.remove(0); }
-                line_count += 1;
-                if line_count % 20 == 0 {
-                    let prog = (50u32 + (line_count / 20).min(45)).min(95);
-                    let _ = app_handle.emit("skill-progress", serde_json::json!({
-                        "step": prog, "total": 100, "name": format!("修改中... ({}行)", line_count),
-                    }).to_string());
+            let mut buf = String::new();
+            loop {
+                if !*state.running.lock().unwrap() { break; }
+                buf.clear();
+                match reader.read_line(&mut buf) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let line = buf.trim_end_matches(|c| c == '\n' || c == '\r').to_string();
+                        if !line.is_empty() {
+                            seen_lines.push(line.clone());
+                            if seen_lines.len() > 200 { seen_lines.remove(0); }
+                            line_count += 1;
+                            if line_count % 20 == 0 {
+                                let prog = (50u32 + (line_count / 20).min(45)).min(95);
+                                let _ = app_handle.emit("skill-progress", serde_json::json!({
+                                    "step": prog, "total": 100, "name": format!("修改中... ({}行)", line_count),
+                                }).to_string());
+                            }
+                            let _ = app_handle.emit("skill-output", &line);
+                        }
+                    }
+                    Err(_) => break,
                 }
-                let _ = app_handle.emit("skill-output", &line);
             }
         }
 
@@ -672,6 +710,10 @@ async fn revise_output(
         }
 
         let success = child.wait().map(|s| s.success()).unwrap_or(false);
+        *state.active_pid.lock().unwrap() = None;
+
+        // Check if cancelled
+        if !*state.running.lock().unwrap() { return; }
 
         if success {
             rename_to_chinese(&dir_for_thread);
@@ -686,6 +728,10 @@ async fn revise_output(
             }).to_string());
         } else {
             let _ = app_handle.emit("skill-error", "修改执行失败".to_string());
+        }
+
+        if *state.run_id.lock().unwrap() == my_run_id {
+            *state.running.lock().unwrap() = false;
         }
     });
 
