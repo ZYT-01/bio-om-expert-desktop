@@ -526,9 +526,13 @@ async fn run_pipeline(
 
             match child.wait() {
                 Ok(status) if !status.success() => {
-                    let _ = app_handle.emit("skill-error",
-                        format!("{} 执行失败，退出码: {}",
-                            step.display, status.code().unwrap_or(-1)));
+                    // Check if user cancelled (exit code from kill -9)
+                    let was_cancelled = !*state.running.lock().unwrap();
+                    if !was_cancelled {
+                        let _ = app_handle.emit("skill-error",
+                            format!("{} 执行失败，退出码: {}",
+                                step.display, status.code().unwrap_or(-1)));
+                    }
                     all_success = false;
                     break;
                 }
@@ -540,6 +544,9 @@ async fn run_pipeline(
                 }
                 _ => {}
             }
+
+            // Check if cancelled before proceeding to next skill
+            if !*state.running.lock().unwrap() { all_success = false; break; }
 
             // Skill complete — advance to end of this skill's range
             global_step = skill_base + 99;
@@ -775,7 +782,7 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn cancel_skill(state: State<'_, AppState>) -> Result<String, String> {
+async fn cancel_skill(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     // Kill the active Claude CLI subprocess
     if let Some(pid) = *state.active_pid.lock().unwrap() {
         let pid_str = pid.to_string();
@@ -789,6 +796,7 @@ async fn cancel_skill(state: State<'_, AppState>) -> Result<String, String> {
     *state.active_pid.lock().unwrap() = None;
     let mut running = state.running.lock().map_err(|e| e.to_string())?;
     *running = false;
+    let _ = app.emit("skill-error", "⏹ 用户中止了任务");
     Ok("已取消".to_string())
 }
 

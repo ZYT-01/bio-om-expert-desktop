@@ -304,7 +304,12 @@ function App() {
                   {running ? "⏳ 执行中..." : "▶ 运行"}
                 </button>
                 {running && (
-                  <button onClick={() => invoke("cancel_skill").catch(() => {})} className="cancel-button">
+                  <button onClick={async () => {
+                    await invoke("cancel_skill").catch(() => {});
+                    setRunning(false);
+                    setProgress(null);
+                    setLogs((p) => [...p, { type: "system", text: "⏹ 任务已中止", time: new Date().toLocaleTimeString() }]);
+                  }} className="cancel-button">
                     ⏹ 中止
                   </button>
                 )}
