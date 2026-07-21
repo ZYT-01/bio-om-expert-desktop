@@ -6,13 +6,13 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 fn base_output_dir() -> PathBuf {
     std::env::temp_dir().join("bio-om-output")
 }
 
-// ── Skill Manifest (embedded at compile time) ──
+// ── Skill Manifest (loaded at runtime, built-in fallback) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillManifest {
@@ -22,6 +22,10 @@ struct SkillManifest {
     trigger_patterns: Vec<String>,
     cli_invoke: String,
     estimated_time: String,
+    #[serde(default)]
+    depends_on: Vec<String>,
+    #[serde(default)]
+    required_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +35,32 @@ struct ExecutionStep {
     prompt: String,
 }
 
-fn load_manifests() -> Vec<SkillManifest> {
+fn skill_dir(app: &AppHandle) -> PathBuf {
+    app.path().app_data_dir().unwrap_or_else(|_| dirs_next().unwrap_or_default())
+        .join("skills")
+}
+
+fn seed_default_skills(app: &AppHandle) {
+    let dir = skill_dir(app);
+    if dir.exists() { return; }
+    fs::create_dir_all(&dir).ok();
+
+    let builtins: &[(&str, &str)] = &[
+        ("web-research.json", include_str!("../../skills-manifest/web-research.json")),
+        ("url-research.json", include_str!("../../skills-manifest/url-research.json")),
+        ("local-research.json", include_str!("../../skills-manifest/local-research.json")),
+        ("report-generator.json", include_str!("../../skills-manifest/report-generator.json")),
+        ("content-writing.json", include_str!("../../skills-manifest/content-writing.json")),
+    ];
+    for (name, content) in builtins {
+        let path = dir.join(name);
+        if !path.exists() {
+            fs::write(&path, content).ok();
+        }
+    }
+}
+
+fn load_builtin_manifests() -> Vec<SkillManifest> {
     let json_files = [
         include_str!("../../skills-manifest/web-research.json"),
         include_str!("../../skills-manifest/url-research.json"),
@@ -44,6 +73,51 @@ fn load_manifests() -> Vec<SkillManifest> {
         .collect()
 }
 
+fn load_manifests(app: &AppHandle) -> (Vec<SkillManifest>, Vec<String>) {
+    let dir = skill_dir(app);
+    let mut manifests: Vec<SkillManifest> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    if dir.exists() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |ext| ext == "json") {
+                    match fs::read_to_string(&path) {
+                        Ok(content) => {
+                            match serde_json::from_str::<SkillManifest>(&content) {
+                                Ok(m) => manifests.push(m),
+                                Err(e) => {
+                                    let name = path.file_name()
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    errors.push(format!(
+                                        "{}: invalid JSON — {}",
+                                        name, e
+                                    ));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            errors.push(format!(
+                                "{}: read failed — {}",
+                                path.display(), e
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to built-in manifests if no external ones found
+    if manifests.is_empty() {
+        manifests = load_builtin_manifests();
+    }
+
+    (manifests, errors)
+}
+
 fn match_skills(input: &str, manifests: &[SkillManifest]) -> Vec<(SkillManifest, u32)> {
     let input_lower = input.to_lowercase();
     let mut scored: Vec<(SkillManifest, u32)> = manifests.iter().map(|m| {
@@ -54,6 +128,31 @@ fn match_skills(input: &str, manifests: &[SkillManifest]) -> Vec<(SkillManifest,
     }).collect();
     scored.sort_by(|a, b| b.1.cmp(&a.1));
     scored
+}
+
+fn resolve_dependencies<'a>(
+    skill: &'a SkillManifest,
+    manifests: &'a [SkillManifest],
+    seen: &mut Vec<String>,
+) -> Vec<&'a SkillManifest> {
+    let mut chain: Vec<&SkillManifest> = Vec::new();
+    for dep_name in &skill.depends_on {
+        // Parse pipe-separated alternatives: "report-generator | web-research" means either
+        let alternatives: Vec<&str> = dep_name.split('|').map(|s| s.trim()).collect();
+        let resolved = alternatives.iter().find_map(|alt| {
+            manifests.iter().find(|m| m.name == *alt)
+        });
+        if let Some(dep) = resolved {
+            if !seen.contains(&dep.name) {
+                seen.push(dep.name.clone());
+                // Recurse: dependencies of dependencies
+                let sub_chain = resolve_dependencies(dep, manifests, seen);
+                chain.extend(sub_chain);
+                chain.push(dep);
+            }
+        }
+    }
+    chain
 }
 
 fn orchestrate_via_claude(input: &str, manifests: &[SkillManifest]) -> Option<Vec<ExecutionStep>> {
@@ -135,8 +234,61 @@ fn ensure_python_script() -> PathBuf {
     script_path
 }
 
+const MIN_CLAUDE_VERSION: &str = "1.0.0";
+
 fn check_claude_installed() -> bool {
     Command::new("claude").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+fn get_claude_version() -> Option<String> {
+    Command::new("claude")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                let combined = format!("{}{}", stdout, stderr);
+                // Extract semver-like version from output
+                let v = combined.split_whitespace()
+                    .find(|w| w.chars().filter(|c| *c == '.').count() >= 1
+                        && w.chars().all(|c| c.is_ascii_digit() || c == '.'))
+                    .map(|s| s.to_string());
+                // Also try "claude" prefix: "claude/1.2.3"
+                v.or_else(|| {
+                    combined.lines()
+                        .find(|l| l.contains("claude"))
+                        .and_then(|l| l.split('/').nth(1))
+                        .map(|s| s.trim().to_string())
+                })
+            } else {
+                None
+            }
+        })
+}
+
+fn version_at_least(version: &str, min: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split('.')
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect()
+    };
+    let v = parse(version);
+    let m = parse(min);
+    for i in 0..m.len().min(v.len()) {
+        if v[i] > m[i] { return true; }
+        if v[i] < m[i] { return false; }
+    }
+    v.len() >= m.len()
+}
+
+fn sanitize_input(input: &str) -> String {
+    // Strip control characters (except newlines and tabs) and limit length
+    input.chars()
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+        .take(2000)
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,8 +387,13 @@ fn parse_progress(line: &str) -> Option<(u32, String)> {
 // ── Tauri Commands ──
 
 #[tauri::command]
-async fn orchestrate(input: String) -> Result<Vec<ExecutionStep>, String> {
-    let manifests = load_manifests();
+async fn orchestrate(app: AppHandle, input: String) -> Result<Vec<ExecutionStep>, String> {
+    let (manifests, load_errors) = load_manifests(&app);
+
+    // Report any manifest loading errors to the frontend
+    for error in &load_errors {
+        let _ = app.emit("skill-error", format!("[manifest] {}", error));
+    }
     let scored = match_skills(&input, &manifests);
 
     // If we have a clear match (score > 0), use keyword matching
@@ -244,7 +401,21 @@ async fn orchestrate(input: String) -> Result<Vec<ExecutionStep>, String> {
         if *score > 0 {
             let second_score = scored.get(1).map(|(_, s)| *s).unwrap_or(0);
             if *score > second_score {
-                // Build a single-step plan
+                // Build execution plan with dependencies resolved
+                let mut seen: Vec<String> = Vec::new();
+                seen.push(top.name.clone());
+                let dep_chain = resolve_dependencies(top, &manifests, &mut seen);
+
+                let mut steps: Vec<ExecutionStep> = Vec::new();
+                for dep in dep_chain {
+                    steps.push(ExecutionStep {
+                        skill: dep.name.clone(),
+                        display: dep.display.clone(),
+                        prompt: format!("运行 {} skill，topic={}", dep.name, input),
+                    });
+                }
+
+                // Add the main skill last (dependencies come first)
                 let prompt = if top.name == "content-writing" {
                     format!("运行 content-writing skill，topic={}", input)
                 } else if top.name == "web-research" {
@@ -252,11 +423,13 @@ async fn orchestrate(input: String) -> Result<Vec<ExecutionStep>, String> {
                 } else {
                     format!("运行 {} skill，输入：{}", top.name, input)
                 };
-                return Ok(vec![ExecutionStep {
+                steps.push(ExecutionStep {
                     skill: top.name.clone(),
                     display: top.display.clone(),
                     prompt,
-                }]);
+                });
+
+                return Ok(steps);
             }
         }
     }
@@ -287,8 +460,9 @@ async fn run_pipeline(
         *running = true;
     }
 
+    let sanitized = sanitize_input(&input);
     let app_handle = app.clone();
-    let output_dir = make_run_dir(&input);
+    let output_dir = make_run_dir(&sanitized);
     let output_dir_ret = output_dir.clone();
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let run_id = format!("run-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
@@ -511,18 +685,27 @@ fn list_output_files(dir: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn check_prerequisites() -> serde_json::Value {
+fn check_prerequisites(app: AppHandle) -> serde_json::Value {
     let claude_ok = check_claude_installed();
+    let claude_version = get_claude_version();
+    let claude_version_ok = claude_version.as_ref()
+        .map(|v| version_at_least(v, MIN_CLAUDE_VERSION))
+        .unwrap_or(false);
     let node_ok = Command::new("node").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
     let python_ok = Command::new("python3").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
-    let skills_ok = dirs_next().unwrap_or_default().join(".claude/skills/content-writing/SKILL.md").exists();
+    let skills_dir = skill_dir(&app);
+    let skills_ok = skills_dir.exists() && skills_dir.read_dir().map(|mut d| d.next().is_some()).unwrap_or(false);
 
     serde_json::json!({
         "claude": claude_ok,
+        "claude_version": claude_version,
+        "claude_version_ok": claude_version_ok,
+        "claude_min_version": MIN_CLAUDE_VERSION,
         "node": node_ok,
         "python3": python_ok,
         "skills": skills_ok,
-        "ready": claude_ok && node_ok && python_ok && skills_ok,
+        "skills_dir": skills_dir.to_string_lossy(),
+        "ready": claude_ok && claude_version_ok && node_ok && python_ok && skills_ok,
     })
 }
 
@@ -580,6 +763,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState { running: Mutex::new(false) })
         .setup(|app| {
+            seed_default_skills(app.handle());
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

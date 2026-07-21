@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# Bio-OM Expert Skill CLI — scaffold, validate, and manage skills
+# Usage: bio-om skill <command> [args]
+
+set -euo pipefail
+
+SKILLS_DIR="${BIO_OM_SKILLS_DIR:-$HOME/.bio-om-expert/skills}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCHEMA_FILE="$SCRIPT_DIR/../skills-manifest/schema.json"
+
+# ── Help ──
+
+show_help() {
+    cat <<'EOF'
+Bio-OM Expert Skill CLI
+
+Manage skills for the Bio-OM Expert desktop app.
+Skills are JSON manifest files stored in ~/.bio-om-expert/skills/
+
+COMMANDS:
+  new <name>         Scaffold a new skill manifest from the built-in template
+  validate <file>    Validate a manifest JSON file against the schema
+  list               List all installed skills with their status
+  test <name>        Dry-run a skill with sample input (requires claude CLI)
+
+EXAMPLES:
+  bio-om skill new "活动策划"
+  bio-om skill validate event-planning.json
+  bio-om skill list
+  bio-om skill test content-writing
+
+Skill manifest JSON Schema: skills-manifest/schema.json
+Documentation: CONTRIBUTING.md
+EOF
+}
+
+# ── New: Scaffold a skill manifest ──
+
+cmd_new() {
+    local name="$1"
+    local filename
+    filename="$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-').json"
+    local output="$SKILLS_DIR/$filename"
+
+    if [ -f "$output" ]; then
+        echo "Error: $output already exists. Delete it first or choose a different name."
+        exit 1
+    fi
+
+    mkdir -p "$SKILLS_DIR"
+    local name_slug
+    name_slug="$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g; s/-$//; s/^-//')"
+    if [ -z "$name_slug" ]; then name_slug="new-skill"; fi
+
+    python3 -c "
+import json, sys
+manifest = {
+    '\$schema': 'https://bio-om-expert.dev/skill-manifest.schema.json',
+    'name': '$name_slug',
+    'display': '$name',
+    'description': 'TODO: Describe what this skill produces',
+    'trigger_patterns': ['TODO-keyword-1', 'TODO-keyword-2'],
+    'cli_invoke': '/skill-name --topic \"{topic}\"',
+    'estimated_time': '3-5 分钟',
+}
+with open('$output', 'w') as f:
+    json.dump(manifest, f, indent=2, ensure_ascii=False)
+" 2>/dev/null || {
+        # Fallback if python3 is unavailable
+        cat > "$output" <<EOF
+{
+  "\$schema": "https://bio-om-expert.dev/skill-manifest.schema.json",
+  "name": "${name_slug}",
+  "display": "${name}",
+  "description": "TODO: Describe what this skill produces",
+  "trigger_patterns": [
+    "TODO-keyword-1",
+    "TODO-keyword-2"
+  ],
+  "cli_invoke": "/skill-name --topic \\\"{topic}\\\"",
+  "estimated_time": "3-5 分钟"
+}
+EOF
+    }
+
+    echo "Created: $output"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Edit $output — fill in the TODO fields"
+    echo "  2. Run: bio-om skill validate $output"
+    echo "  3. Launch Bio-OM Expert — your skill appears automatically"
+    echo ""
+    echo "Docs: CONTRIBUTING.md"
+}
+
+# ── Validate: Check a manifest against the JSON Schema ──
+
+cmd_validate() {
+    local file="$1"
+
+    if [ ! -f "$file" ]; then
+        echo "Error: file not found: $file"
+        exit 1
+    fi
+
+    # Basic JSON syntax check
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json, sys
+try:
+    with open('$file') as f:
+        data = json.load(f)
+    required = ['name', 'display', 'description', 'trigger_patterns', 'cli_invoke', 'estimated_time']
+    missing = [f for f in required if f not in data]
+    if missing:
+        print(f'ERROR: Missing required fields: {\", \".join(missing)}')
+        sys.exit(1)
+    if not isinstance(data.get('trigger_patterns'), list) or len(data['trigger_patterns']) == 0:
+        print('ERROR: trigger_patterns must be a non-empty array')
+        sys.exit(1)
+    if not data['name'].replace('-','').replace('_','').isalnum():
+        print('ERROR: name must be kebab-case (e.g. event-planning)')
+        sys.exit(1)
+    print(f'PASS: {data[\"name\"]} — {len(data[\"trigger_patterns\"])} trigger patterns — OK')
+except json.JSONDecodeError as e:
+    print(f'ERROR: Invalid JSON: {e}')
+    sys.exit(1)
+except Exception as e:
+    print(f'ERROR: {e}')
+    sys.exit(1)
+" 2>&1
+    else
+        # Fallback: jq-based check
+        if ! command -v jq >/dev/null 2>&1; then
+            echo "Error: python3 or jq required for validation"
+            exit 1
+        fi
+        jq -e '.name and .display and .description and .trigger_patterns and .cli_invoke and .estimated_time' "$file" >/dev/null 2>&1 \
+            && echo "PASS: $file — OK" \
+            || echo "ERROR: Missing required fields in $file"
+    fi
+}
+
+# ── List: Show all installed skills ──
+
+cmd_list() {
+    if [ ! -d "$SKILLS_DIR" ] || [ -z "$(ls -A "$SKILLS_DIR" 2>/dev/null)" ]; then
+        echo "No skills installed. Run: bio-om skill new <name> to create one."
+        return
+    fi
+
+    echo "Skills in $SKILLS_DIR:"
+    echo ""
+    for f in "$SKILLS_DIR"/*.json; do
+        [ -f "$f" ] || continue
+        local name status
+        name="$(basename "$f" .json)"
+        if command -v python3 >/dev/null 2>&1; then
+            status="$(python3 -c "
+import json
+with open('$f') as fh:
+    d = json.load(fh)
+print(f'{d.get(\"display\", \"?\")} — {d.get(\"description\", \"?\")}')
+" 2>/dev/null || echo "parse error")"
+        else
+            status="$(jq -r '"\(.display // "?") — \(.description // "?")"' "$f" 2>/dev/null || echo "parse error")"
+        fi
+        printf "  %-25s %s\n" "$name" "$status"
+    done
+}
+
+# ── Test: Dry-run a skill ──
+
+cmd_test() {
+    local name="$1"
+    local manifest="$SKILLS_DIR/${name}.json"
+
+    if [ ! -f "$manifest" ]; then
+        # Try built-in manifests
+        manifest="$SCRIPT_DIR/../skills-manifest/${name}.json"
+    fi
+
+    if [ ! -f "$manifest" ]; then
+        echo "Error: skill '$name' not found. Available:"
+        cmd_list
+        exit 1
+    fi
+
+    echo "Testing skill: $name"
+    echo "Manifest: $manifest"
+    echo ""
+
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "ERROR: Claude CLI not found. Install it first: npm install -g @anthropic-ai/claude-code"
+        exit 1
+    fi
+
+    echo "Running claude with skill invocation (dry-run)..."
+    echo "---"
+    claude -p "Run skill $name with a test topic. Output a brief summary only." --output-format text 2>&1 | head -50
+}
+
+# ── Dispatch ──
+
+COMMAND="${1:-}"
+case "$COMMAND" in
+    new)
+        [ $# -lt 2 ] && { echo "Usage: bio-om skill new <name>"; exit 1; }
+        cmd_new "$2"
+        ;;
+    validate)
+        [ $# -lt 2 ] && { echo "Usage: bio-om skill validate <file.json>"; exit 1; }
+        cmd_validate "$2"
+        ;;
+    list|ls)
+        cmd_list
+        ;;
+    test|dry-run)
+        [ $# -lt 2 ] && { echo "Usage: bio-om skill test <name>"; exit 1; }
+        cmd_test "$2"
+        ;;
+    help|-h|--help)
+        show_help
+        ;;
+    *)
+        show_help
+        exit 1
+        ;;
+esac

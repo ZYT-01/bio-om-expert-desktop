@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bio-om-expert.dev/skill-manifest.schema.json",
+  "title": "Bio-OM Expert Skill Manifest",
+  "description": "Defines a skill that Bio-OM Expert can orchestrate. Each skill wraps a Claude Code invocation for content operations.",
+  "type": "object",
+  "required": ["name", "display", "description", "trigger_patterns", "cli_invoke", "estimated_time"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Machine-readable skill identifier. Use kebab-case, e.g. 'web-research'.",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "examples": ["web-research", "content-writing"]
+    },
+    "display": {
+      "type": "string",
+      "description": "Human-readable skill name shown in the UI. Chinese preferred.",
+      "examples": ["全网搜索研究", "文案撰写与视频脚本"]
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line description of what this skill produces. Used in the orchestration plan.",
+      "examples": ["搜索最新行业研究和学术论文"]
+    },
+    "trigger_patterns": {
+      "type": "array",
+      "description": "Keywords and phrases that trigger this skill. Matched case-insensitively against user input.",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 2 },
+      "examples": [["写推文", "写文章", "公众号", "视频脚本", "科普"]]
+    },
+    "cli_invoke": {
+      "type": "string",
+      "description": "Template for invoking this skill via Claude Code. Use {param_name} placeholders for dynamic values. The orchestrator fills these from user input context.",
+      "examples": ["/content-writing --report \"{report}\" --topic \"{topic}\" --duration 180 --platform long"]
+    },
+    "estimated_time": {
+      "type": "string",
+      "description": "User-facing estimate of how long this skill takes to run.",
+      "pattern": "^\\d+[-–]?\\d*\\s*(秒|分钟|min|sec)",
+      "examples": ["3-5 分钟", "30 秒"]
+    },
+    "depends_on": {
+      "type": "array",
+      "description": "Skills that must run before this one. Use '|' for alternatives (e.g. 'web-research | local-research'). Dependencies run in order, before this skill.",
+      "items": { "type": "string" },
+      "examples": [["web-research"], ["report-generator | web-research"]]
+    },
+    "required_args": {
+      "type": "array",
+      "description": "Arguments this skill expects from user input or upstream skills.",
+      "items": { "type": "string" },
+      "examples": [["topic"], ["report", "topic", "duration"]]
+    }
+  },
+  "additionalProperties": false
+}

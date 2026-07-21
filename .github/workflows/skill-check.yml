@@ -1,0 +1,53 @@
+name: Validate Skill Manifests
+on:
+  push:
+    branches: [main]
+    paths: ["skills-manifest/**", ".github/workflows/skill-check.yml"]
+  pull_request:
+    paths: ["skills-manifest/**"]
+
+jobs:
+  validate-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate built-in manifests
+        run: |
+          echo "Checking built-in skill manifests..."
+          FAILED=0
+          for f in skills-manifest/*.json; do
+            [ "$f" = "skills-manifest/schema.json" ] && continue
+            echo -n "  $(basename $f): "
+            # Check valid JSON
+            if python3 -c "import json; json.load(open('$f'))" 2>/dev/null; then
+              # Check required fields
+              python3 -c "
+import json, sys
+d = json.load(open('$f'))
+required = ['name','display','description','trigger_patterns','cli_invoke','estimated_time']
+missing = [r for r in required if r not in d]
+if missing:
+    print(f'FAIL: missing {missing}')
+    sys.exit(1)
+if not isinstance(d.get('trigger_patterns'), list) or len(d['trigger_patterns']) == 0:
+    print('FAIL: trigger_patterns must be non-empty array')
+    sys.exit(1)
+if not d['name'].replace('-','').isalnum():
+    print(f'FAIL: name \"{d[\"name\"]}\" must be kebab-case')
+    sys.exit(1)
+print(f'OK ({len(d[\"trigger_patterns\"])} triggers, display=\"{d[\"display\"]}\")')
+" || FAILED=$((FAILED + 1))
+            else
+              echo "FAIL: invalid JSON"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+          if [ $FAILED -gt 0 ]; then
+            echo "::error::$FAILED manifest(s) failed validation"
+            exit 1
+          fi
+          echo "All manifests OK"
+
+      - name: Verify schema is valid JSON
+        run: python3 -c "import json; s=json.load(open('skills-manifest/schema.json')); print(f'Schema OK: {s[\"title\"]} — {len(s[\"properties\"])} properties')"
