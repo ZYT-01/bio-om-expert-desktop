@@ -87,10 +87,11 @@ function App() {
     setRunning(true); setDone(false); setOutputDir(null); setDocxPath(null); setPlan(null);
     setPreviewFiles([]); setPreviewFile(null); setPreviewContent("");
     setProgress({ step: 0, total: 100, name: "分析需求...", pct: 0 });
-    setLogs([{ type: "system", text: `🔍 分析需求: ${input}`, time: new Date().toLocaleTimeString() }]);
+    setLogs([{ type: "system", text: `正在分析: ${input}`, time: new Date().toLocaleTimeString() }]);
 
     try {
       // Step 1: Orchestrate
+      setProgress({ step: 5, total: 100, name: "正在识别意图...", pct: 5 });
       const steps = await invoke<ExecutionStep[]>("orchestrate", { input: input.trim() });
       setPlan(steps);
 
@@ -98,7 +99,6 @@ function App() {
       setLogs((p) => [
         ...p,
         { type: "plan", text: `📋 执行计划:\n${planText}`, time: new Date().toLocaleTimeString() },
-        { type: "system", text: "开始执行 pipeline...", time: new Date().toLocaleTimeString() },
       ]);
 
       // Step 2: Run pipeline
@@ -264,15 +264,33 @@ function App() {
           <div className="log-panel">
             {logs.length === 0 && (
               <div className="empty-state">
-                <p>输入你的需求，AI 自动编排 skill 执行。</p>
-                <p className="hint">例如：写一篇关于 SOD 抗氧化机制的科普推文</p>
-                <p className="hint">例如：搜索 AAV 基因治疗的最新研究进展</p>
+                <div className="empty-brand">
+                  <h2>Bio-OM Expert</h2>
+                  <p className="empty-subtitle">AI 驱动的内容运营工作台 — 研究、撰稿、视频脚本，一站式完成</p>
+                </div>
+                <div className="empty-examples">
+                  <button className="example-chip" onClick={() => setInput("写一篇关于 SOD 抗氧化机制的科普推文，要 3 分钟视频脚本")}>
+                    写一篇 SOD 抗氧化机制的科普推文
+                  </button>
+                  <button className="example-chip" onClick={() => setInput("搜索 AAV 基因治疗的最新研究进展")}>
+                    搜索 AAV 基因治疗的最新研究
+                  </button>
+                  <button className="example-chip" onClick={() => setInput("帮我写一篇关于 mRNA 疫苗技术原理的行业分析")}>
+                    写一篇 mRNA 疫苗技术的行业分析
+                  </button>
+                  <button className="example-chip" onClick={() => setInput("策划一场生物科技主题的线下沙龙活动")}>
+                    策划一场生物科技主题沙龙活动
+                  </button>
+                </div>
               </div>
             )}
             {logs.map((entry, i) => (
               <div key={i} className={`log-entry log-${entry.type}`}>
                 <span className="log-time">{entry.time ? `[${entry.time}]` : ""}</span>
                 <span className="log-text" style={{ whiteSpace: "pre-wrap" }}>{entry.text}</span>
+                {entry.type === "error" && (
+                  <button className="retry-btn" onClick={handleRun} title="重试">↻ 重试</button>
+                )}
               </div>
             ))}
             <div ref={logEndRef} />
