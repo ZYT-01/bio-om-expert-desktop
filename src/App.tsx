@@ -41,9 +41,15 @@ function App() {
   useEffect(() => { loadHistory(); }, [loadHistory]);
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
+  const lastOutputRef = useRef("");
+  const lastErrorRef = useRef("");
+  const doneFiredRef = useRef(false);
   useEffect(() => {
     const uns: UnlistenFn[] = [];
     listen<string>("skill-output", (e) => {
+      // Skip exact duplicates (caused by React StrictMode double-mounting listeners)
+      if (e.payload === lastOutputRef.current) return;
+      lastOutputRef.current = e.payload;
       setLogs((p) => [...p, { type: "output", text: e.payload, time: new Date().toLocaleTimeString() }]);
     }).then((f) => uns.push(f));
     listen<string>("skill-progress", (e) => {
@@ -53,10 +59,14 @@ function App() {
       } catch { /* */ }
     }).then((f) => uns.push(f));
     listen<string>("skill-error", (e) => {
+      if (e.payload === lastErrorRef.current) return;
+      lastErrorRef.current = e.payload;
       setLogs((p) => [...p, { type: "error", text: e.payload, time: new Date().toLocaleTimeString() }]);
       setRunning(false); setProgress(null);
     }).then((f) => uns.push(f));
     listen<string>("skill-done", (e) => {
+      if (doneFiredRef.current) return;
+      doneFiredRef.current = true;
       let outDir = "";
       try {
         const d = JSON.parse(e.payload);
@@ -73,6 +83,7 @@ function App() {
 
   const handleRun = async () => {
     if (!input.trim() || running) return;
+    doneFiredRef.current = false;
     setRunning(true); setDone(false); setOutputDir(null); setDocxPath(null); setPlan(null);
     setPreviewFiles([]); setPreviewFile(null); setPreviewContent("");
     setProgress({ step: 0, total: 100, name: "分析需求...", pct: 0 });
@@ -159,6 +170,9 @@ function App() {
   };
 
   const handleNewConversation = () => {
+    lastOutputRef.current = "";
+    lastErrorRef.current = "";
+    doneFiredRef.current = false;
     setInput(""); setLogs([]); setOutputDir(null); setDocxPath(null);
     setDone(false); setProgress(null); setSelectedId(null); setPlan(null);
     setPreviewFiles([]); setPreviewFile(null); setPreviewContent("");
