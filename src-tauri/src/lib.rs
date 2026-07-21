@@ -461,6 +461,7 @@ async fn run_pipeline(
     std::thread::spawn(move || {
         let mut global_step;
         let mut all_success = true;
+        let mut seen_lines: Vec<String> = Vec::new();
 
         for (i, step) in steps_for_thread.iter().enumerate() {
             let skill_base = i as u32 * 100;
@@ -490,8 +491,9 @@ async fn run_pipeline(
             if let Some(stdout) = child.stdout.take() {
                 let mut line_count = 0u32;
                 for line in BufReader::new(stdout).lines().flatten() {
+                    seen_lines.push(line.clone());
+                    if seen_lines.len() > 200 { seen_lines.remove(0); }
                     line_count += 1;
-                    // Advance progress: every ~20 lines of output = 1% within this skill
                     if line_count % 20 == 0 {
                         let sub_progress = ((line_count / 20) as u32).min(90);
                         global_step = skill_base + sub_progress;
@@ -506,7 +508,7 @@ async fn run_pipeline(
 
             if let Some(stderr) = child.stderr.take() {
                 for line in BufReader::new(stderr).lines().flatten() {
-                    if !line.is_empty() {
+                    if !line.is_empty() && !seen_lines.contains(&line) {
                         let _ = app_handle.emit("skill-output",
                             &format!("[stderr] {}", line));
                     }
@@ -604,6 +606,7 @@ async fn revise_output(
     );
 
     std::thread::spawn(move || {
+        let mut seen_lines: Vec<String> = Vec::new();
         let mut child = match Command::new("claude")
             .arg("-p").arg(&prompt).arg("--output-format").arg("text")
             .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
@@ -618,6 +621,8 @@ async fn revise_output(
         if let Some(stdout) = child.stdout.take() {
             let mut line_count = 0u32;
             for line in BufReader::new(stdout).lines().flatten() {
+                seen_lines.push(line.clone());
+                if seen_lines.len() > 200 { seen_lines.remove(0); }
                 line_count += 1;
                 if line_count % 20 == 0 {
                     let prog = (50u32 + (line_count / 20).min(45)).min(95);
@@ -631,7 +636,7 @@ async fn revise_output(
 
         if let Some(stderr) = child.stderr.take() {
             for line in BufReader::new(stderr).lines().flatten() {
-                if !line.is_empty() {
+                if !line.is_empty() && !seen_lines.contains(&line) {
                     let _ = app_handle.emit("skill-output", &format!("[stderr] {}", line));
                 }
             }
