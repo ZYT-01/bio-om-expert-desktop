@@ -717,10 +717,24 @@ fn get_history_detail(id: String) -> Result<HistoryEntry, String> {
 #[tauri::command]
 fn delete_history(id: String) -> Result<(), String> {
     let mut store = load_history();
+
+    // Find the entry to get its output_dir before removing
+    let output_dir = store.entries.iter()
+        .find(|e| e.id == id)
+        .map(|e| e.output_dir.clone());
+
     store.entries.retain(|e| e.id != id);
     if let Ok(json) = serde_json::to_string_pretty(&store) {
         fs::write(history_file(), json).map_err(|e| e.to_string())?;
     }
+
+    // Delete the associated output files
+    if let Some(dir) = output_dir {
+        if PathBuf::from(&dir).exists() {
+            fs::remove_dir_all(&dir).ok();
+        }
+    }
+
     Ok(())
 }
 

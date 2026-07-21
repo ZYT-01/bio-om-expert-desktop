@@ -143,7 +143,18 @@ function App() {
     try {
       await invoke("delete_history", { id });
       setHistory((p) => p.filter((h) => h.id !== id));
-      if (selectedId === id) { setSelectedId(null); setLogs([]); }
+      if (selectedId === id) {
+        setSelectedId(null);
+        setLogs([]);
+        setOutputDir(null);
+        setDocxPath(null);
+        setDone(false);
+        setProgress(null);
+        setPlan(null);
+        setPreviewFiles([]);
+        setPreviewFile(null);
+        setPreviewContent("");
+      }
     } catch { /* */ }
   };
 
