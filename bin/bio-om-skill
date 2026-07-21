@@ -48,7 +48,8 @@ cmd_new() {
     fi
 
     mkdir -p "$SKILLS_DIR"
-    local name_slug
+    local name_slug start_ts
+    start_ts=$(date +%s)
     name_slug="$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g; s/-$//; s/^-//')"
     if [ -z "$name_slug" ]; then name_slug="new-skill"; fi
 
@@ -83,7 +84,13 @@ with open('$output', 'w') as f:
 EOF
     }
 
+    local end_ts duration
+    end_ts=$(date +%s)
+    duration=$((end_ts - start_ts))
+
     echo "Created: $output"
+    echo ""
+    echo "⏱  Scaffolded in ${duration}s"
     echo ""
     echo "Next steps:"
     echo "  1. Edit $output — fill in the TODO fields"

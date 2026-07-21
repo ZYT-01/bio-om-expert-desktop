@@ -188,6 +188,15 @@ function App() {
         <span className={`status-badge ${running ? "running" : "idle"}`}>
           {running ? "⚡ 运行中..." : "✓ 就绪"}
         </span>
+        <a
+          className="feedback-link"
+          href="https://github.com/ZYT-01/bio-om-expert-desktop/issues/new?template=bug_report.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="反馈问题或建议"
+        >
+          💬 反馈
+        </a>
       </header>
 
       <div className="app-body">

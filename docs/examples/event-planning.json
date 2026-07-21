@@ -1,0 +1,23 @@
+{
+  "$schema": "https://bio-om-expert.dev/skill-manifest.schema.json",
+  "name": "event-planning",
+  "display": "活动策划方案",
+  "description": "基于主题生成完整的线下/线上活动策划方案，包括流程、预算和物料清单",
+  "trigger_patterns": [
+    "活动策划",
+    "活动方案",
+    "线下活动",
+    "营销活动",
+    "展会方案",
+    "发布会策划",
+    "沙龙活动"
+  ],
+  "cli_invoke": "/content-writing --topic \"{topic}\" --type event-planning --audience \"B端生物科技从业者\"",
+  "estimated_time": "3-5 分钟",
+  "depends_on": [
+    "web-research"
+  ],
+  "required_args": [
+    "topic"
+  ]
+}
