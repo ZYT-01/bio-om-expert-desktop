@@ -302,6 +302,7 @@ struct HistoryStore { entries: Vec<HistoryEntry> }
 struct AppState {
     running: Mutex<bool>,
     active_pid: Mutex<Option<u32>>,
+    run_id: Mutex<u64>,
 }
 
 fn load_history() -> HistoryStore {
@@ -452,10 +453,17 @@ async fn run_pipeline(
     let output_dir = make_run_dir(&sanitized);
     let output_dir_ret = output_dir.clone();
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let run_id = format!("run-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
+    let history_run_id = format!("run-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
     let steps_count = steps.len();
     let total_steps = steps_count as u32 * 100;
     let steps_for_thread = steps.clone();
+    // Increment run_id for cancellation tracking
+    let my_run_id = {
+        let state = app_handle.state::<AppState>();
+        let mut id = state.run_id.lock().unwrap();
+        *id = id.wrapping_add(1);
+        *id
+    };
 
     let _ = app_handle.emit("skill-progress", serde_json::json!({
         "step": 0, "total": total_steps, "name": "编排完成，开始执行..."
@@ -521,12 +529,9 @@ async fn run_pipeline(
                 }
             }
 
-            // Clear PID before waiting (so cancel_skill doesn't race)
-            *state.active_pid.lock().unwrap() = None;
-
             match child.wait() {
                 Ok(status) if !status.success() => {
-                    // Check if user cancelled (exit code from kill -9)
+                    // Check if user cancelled
                     let was_cancelled = !*state.running.lock().unwrap();
                     if !was_cancelled {
                         let _ = app_handle.emit("skill-error",
@@ -544,6 +549,8 @@ async fn run_pipeline(
                 }
                 _ => {}
             }
+            // Clear PID AFTER child exits (so cancel_skill can always find it)
+            *state.active_pid.lock().unwrap() = None;
 
             // Check if cancelled before proceeding to next skill
             if !*state.running.lock().unwrap() { all_success = false; break; }
@@ -564,7 +571,7 @@ async fn run_pipeline(
         let final_files = scan_output_files(&output_dir);
 
         save_history_entry(HistoryEntry {
-            id: run_id, topic: input,
+            id: history_run_id, topic: input,
             output_dir: output_dir.clone(),
             status: status_str.to_string(),
             files: final_files, created_at: ts,
@@ -579,6 +586,12 @@ async fn run_pipeline(
                 "output_dir": output_dir,
                 "docx_path": docx_path,
             }).to_string());
+        }
+
+        // Only reset state if we're still the active run (not superseded by a new task)
+        if *state.run_id.lock().unwrap() == my_run_id {
+            *state.running.lock().unwrap() = false;
+            *state.active_pid.lock().unwrap() = None;
         }
     });
 
@@ -796,6 +809,8 @@ async fn cancel_skill(app: AppHandle, state: State<'_, AppState>) -> Result<Stri
     *state.active_pid.lock().unwrap() = None;
     let mut running = state.running.lock().map_err(|e| e.to_string())?;
     *running = false;
+    // Bump run_id so old thread can't re-lock running
+    { let mut id = state.run_id.lock().unwrap(); *id = id.wrapping_add(1); }
     let _ = app.emit("skill-error", "⏹ 用户中止了任务");
     Ok("已取消".to_string())
 }
@@ -813,7 +828,7 @@ fn dirs_next() -> Option<PathBuf> {
 pub fn run() {
     fs::create_dir_all(history_dir()).ok();
     tauri::Builder::default()
-        .manage(AppState { running: Mutex::new(false), active_pid: Mutex::new(None) })
+        .manage(AppState { running: Mutex::new(false), active_pid: Mutex::new(None), run_id: Mutex::new(0) })
         .setup(|app| {
             seed_default_skills(app.handle());
             if cfg!(debug_assertions) {
