@@ -299,7 +299,10 @@ struct HistoryEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HistoryStore { entries: Vec<HistoryEntry> }
 
-struct AppState { running: Mutex<bool> }
+struct AppState {
+    running: Mutex<bool>,
+    active_pid: Mutex<Option<u32>>,
+}
 
 fn load_history() -> HistoryStore {
     let path = history_file();
@@ -459,6 +462,7 @@ async fn run_pipeline(
     }).to_string());
 
     std::thread::spawn(move || {
+        let state = app_handle.state::<AppState>();
         let mut global_step;
         let mut all_success = true;
         let mut seen_lines: Vec<String> = Vec::new();
@@ -487,6 +491,8 @@ async fn run_pipeline(
                     break;
                 }
             };
+            // Store PID so cancel_skill can kill this process
+            *state.active_pid.lock().unwrap() = Some(child.id());
 
             if let Some(stdout) = child.stdout.take() {
                 let mut line_count = 0u32;
@@ -514,6 +520,9 @@ async fn run_pipeline(
                     }
                 }
             }
+
+            // Clear PID before waiting (so cancel_skill doesn't race)
+            *state.active_pid.lock().unwrap() = None;
 
             match child.wait() {
                 Ok(status) if !status.success() => {
@@ -767,6 +776,17 @@ fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn cancel_skill(state: State<'_, AppState>) -> Result<String, String> {
+    // Kill the active Claude CLI subprocess
+    if let Some(pid) = *state.active_pid.lock().unwrap() {
+        let pid_str = pid.to_string();
+        #[cfg(target_os = "windows")]
+        { Command::new("taskkill").args(["/PID", &pid_str, "/F"]).spawn().ok(); }
+        #[cfg(target_os = "macos")]
+        { Command::new("kill").arg("-9").arg(&pid_str).spawn().ok(); }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        { Command::new("kill").arg("-9").arg(&pid_str).spawn().ok(); }
+    }
+    *state.active_pid.lock().unwrap() = None;
     let mut running = state.running.lock().map_err(|e| e.to_string())?;
     *running = false;
     Ok("已取消".to_string())
@@ -785,7 +805,7 @@ fn dirs_next() -> Option<PathBuf> {
 pub fn run() {
     fs::create_dir_all(history_dir()).ok();
     tauri::Builder::default()
-        .manage(AppState { running: Mutex::new(false) })
+        .manage(AppState { running: Mutex::new(false), active_pid: Mutex::new(None) })
         .setup(|app| {
             seed_default_skills(app.handle());
             if cfg!(debug_assertions) {

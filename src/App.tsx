@@ -299,9 +299,16 @@ function App() {
               </>
             )}
             {!done && (
-              <button onClick={handleRun} disabled={running || !input.trim()} className="run-button">
-                {running ? "⏳ 执行中..." : "▶ 运行"}
-              </button>
+              <>
+                <button onClick={handleRun} disabled={running || !input.trim()} className="run-button">
+                  {running ? "⏳ 执行中..." : "▶ 运行"}
+                </button>
+                {running && (
+                  <button onClick={() => invoke("cancel_skill").catch(() => {})} className="cancel-button">
+                    ⏹ 中止
+                  </button>
+                )}
+              </>
             )}
             {done && (
               <button onClick={handleRevise} disabled={running || !input.trim()} className="revise-button">

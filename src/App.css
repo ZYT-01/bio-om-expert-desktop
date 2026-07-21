@@ -168,6 +168,15 @@ body { background: var(--bg); color: var(--text); overflow: hidden; }
 .run-button:active:not(:disabled) { transform: scale(0.97); }
 .run-button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.cancel-button {
+  padding: 10px 16px; background: var(--error); color: #fff;
+  border: none; border-radius: var(--radius); font-size: 14px;
+  font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.cancel-button:hover { opacity: 0.85; }
+.cancel-button:active { transform: scale(0.97); }
+
 .folder-button {
   padding: 10px 16px; background: var(--success); color: #fff;
   border: none; border-radius: var(--radius); font-size: 14px;
