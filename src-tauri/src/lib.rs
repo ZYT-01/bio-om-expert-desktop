@@ -1,4 +1,3 @@
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -369,21 +368,6 @@ fn generate_combined_docx(output_dir: &str) -> Option<String> {
     if output.status.success() { Some(docx_path) } else { None }
 }
 
-fn parse_progress(line: &str) -> Option<(u32, String)> {
-    let step_re = Regex::new(r"^\|\s*(\d{1,2})\.\s*([^|]+)\|").ok()?;
-    if let Some(caps) = step_re.captures(line) {
-        let num: u32 = caps.get(1)?.as_str().parse().ok()?;
-        let name = caps.get(2)?.as_str().trim().to_string();
-        return Some((num, name));
-    }
-    let step2_re = Regex::new(r"步骤\s*(\d{1,2})\s*/\s*\d{1,2}").ok()?;
-    if let Some(caps) = step2_re.captures(line) {
-        let num: u32 = caps.get(1)?.as_str().parse().ok()?;
-        return Some((num, format!("步骤 {}", num)));
-    }
-    None
-}
-
 // ── Tauri Commands ──
 
 #[tauri::command]
@@ -467,7 +451,7 @@ async fn run_pipeline(
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let run_id = format!("run-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
     let steps_count = steps.len();
-    let total_steps = steps_count as u32 * 11;
+    let total_steps = steps_count as u32 * 100;
     let steps_for_thread = steps.clone();
 
     let _ = app_handle.emit("skill-progress", serde_json::json!({
@@ -475,16 +459,17 @@ async fn run_pipeline(
     }).to_string());
 
     std::thread::spawn(move || {
-        let mut global_step = 0u32;
+        let mut global_step;
         let mut all_success = true;
 
         for (i, step) in steps_for_thread.iter().enumerate() {
+            let skill_base = i as u32 * 100;
             let _ = app_handle.emit("skill-output", &format!(
                 "\n━━━ 第 {}/{} 步: {} ━━━", i + 1, steps_count, step.display
             ));
             let _ = app_handle.emit("skill-progress", serde_json::json!({
-                "step": global_step, "total": total_steps,
-                "name": format!("{}/{} {}", i + 1, steps_count, step.display),
+                "step": skill_base, "total": total_steps,
+                "name": format!("正在执行: {}", step.display),
             }).to_string());
 
             let prompt = format!("{}，输出到 {}/", step.prompt, output_dir);
@@ -503,16 +488,17 @@ async fn run_pipeline(
             };
 
             if let Some(stdout) = child.stdout.take() {
-                let mut last_step = 0u32;
+                let mut line_count = 0u32;
                 for line in BufReader::new(stdout).lines().flatten() {
-                    if let Some((num, name)) = parse_progress(&line) {
-                        if num > last_step {
-                            last_step = num;
-                            global_step = (i as u32 * 11) + num;
-                            let _ = app_handle.emit("skill-progress", serde_json::json!({
-                                "step": global_step, "total": total_steps, "name": name,
-                            }).to_string());
-                        }
+                    line_count += 1;
+                    // Advance progress: every ~20 lines of output = 1% within this skill
+                    if line_count % 20 == 0 {
+                        let sub_progress = ((line_count / 20) as u32).min(90);
+                        global_step = skill_base + sub_progress;
+                        let _ = app_handle.emit("skill-progress", serde_json::json!({
+                            "step": global_step, "total": total_steps,
+                            "name": format!("{} ({}行输出)", step.display, line_count),
+                        }).to_string());
                     }
                     let _ = app_handle.emit("skill-output", &line);
                 }
@@ -543,6 +529,13 @@ async fn run_pipeline(
                 }
                 _ => {}
             }
+
+            // Skill complete — advance to end of this skill's range
+            global_step = skill_base + 99;
+            let _ = app_handle.emit("skill-progress", serde_json::json!({
+                "step": global_step, "total": total_steps,
+                "name": format!("✓ {} 完成", step.display),
+            }).to_string());
         }
 
         let status_str = if all_success { "done" } else { "error" };
@@ -623,12 +616,13 @@ async fn revise_output(
         };
 
         if let Some(stdout) = child.stdout.take() {
-            let mut last_step = 0u32;
+            let mut line_count = 0u32;
             for line in BufReader::new(stdout).lines().flatten() {
-                if let Some((num, name)) = parse_progress(&line) {
-                    if num > last_step { last_step = num; }
+                line_count += 1;
+                if line_count % 20 == 0 {
+                    let prog = (50u32 + (line_count / 20).min(45)).min(95);
                     let _ = app_handle.emit("skill-progress", serde_json::json!({
-                        "step": num, "total": 11, "name": format!("修改: {}", name),
+                        "step": prog, "total": 100, "name": format!("修改中... ({}行)", line_count),
                     }).to_string());
                 }
                 let _ = app_handle.emit("skill-output", &line);
@@ -649,7 +643,7 @@ async fn revise_output(
             rename_to_chinese(&dir_for_thread);
             generate_combined_docx(&dir_for_thread);
             let _ = app_handle.emit("skill-progress", serde_json::json!({
-                "step": 11, "total": 11, "name": "修改完成",
+                "step": 100, "total": 100, "name": "修改完成",
             }).to_string());
             let _ = app_handle.emit("skill-done", serde_json::json!({
                 "message": "修改完成",
@@ -742,6 +736,17 @@ fn open_output_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    { Command::new("open").arg(&url).spawn().map_err(|e| e.to_string())?; }
+    #[cfg(target_os = "windows")]
+    { Command::new("cmd").args(["/c", "start", &url]).spawn().map_err(|e| e.to_string())?; }
+    #[cfg(target_os = "linux")]
+    { Command::new("xdg-open").arg(&url).spawn().map_err(|e| e.to_string())?; }
+    Ok(())
+}
+
+#[tauri::command]
 async fn cancel_skill(state: State<'_, AppState>) -> Result<String, String> {
     let mut running = state.running.lock().map_err(|e| e.to_string())?;
     *running = false;
@@ -775,7 +780,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             check_prerequisites,
             orchestrate, run_pipeline, revise_output, read_output_file, list_output_files,
-            open_output_folder, cancel_skill, get_history, get_history_detail, delete_history,
+            open_output_folder, open_url, cancel_skill, get_history, get_history_detail, delete_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

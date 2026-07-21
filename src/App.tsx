@@ -188,15 +188,13 @@ function App() {
         <span className={`status-badge ${running ? "running" : "idle"}`}>
           {running ? "⚡ 运行中..." : "✓ 就绪"}
         </span>
-        <a
+        <button
           className="feedback-link"
-          href="https://github.com/ZYT-01/bio-om-expert-desktop/issues/new?template=bug_report.md"
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={() => invoke("open_url", { url: "https://github.com/ZYT-01/bio-om-expert-desktop/issues/new?template=bug_report.md" }).catch(() => {})}
           title="反馈问题或建议"
         >
           💬 反馈
-        </a>
+        </button>
       </header>
 
       <div className="app-body">
