@@ -44,6 +44,7 @@ function App() {
   const lastOutputRef = useRef("");
   const lastErrorRef = useRef("");
   const doneFiredRef = useRef(false);
+  const composingRef = useRef(false);
   useEffect(() => {
     const uns: UnlistenFn[] = [];
     listen<string>("skill-output", (e) => {
@@ -299,9 +300,10 @@ function App() {
           <div className="input-panel">
             <input type="text" value={input}
               onChange={(e) => setInput(e.target.value)}
+              onCompositionStart={() => { composingRef.current = true; }}
+              onCompositionEnd={() => { composingRef.current = false; }}
               onKeyDown={(e) => {
-                // Ignore IME composition (Chinese/Japanese/Korean input)
-                if (e.isComposing || e.key === "Process" || e.keyCode === 229) return;
+                if (composingRef.current) return;
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   done ? handleRevise() : handleRun();
