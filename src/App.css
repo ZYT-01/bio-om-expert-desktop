@@ -248,10 +248,19 @@ body { background: var(--bg); color: var(--text); overflow: hidden; }
 }
 .new-task-button:hover { color: var(--text); border-color: var(--text-dim); }
 
+.preview-reopen-btn {
+  padding: 10px 16px; background: var(--accent-bg); color: var(--accent);
+  border: 1px solid var(--accent); border-radius: var(--radius); font-size: 14px;
+  font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: background 0.2s;
+}
+.preview-reopen-btn:hover { background: rgba(79,143,255,0.25); }
+
 /* ── Preview Panel ── */
 .preview-panel {
-  width: 420px; min-width: 320px; background: var(--surface);
-  border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
+  flex: 0 0 380px; max-width: 42vw; min-width: 280px;
+  background: var(--surface); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
 }
 
 .preview-header {
@@ -289,6 +298,14 @@ body { background: var(--bg); color: var(--text); overflow: hidden; }
   cursor: pointer; transition: background 0.15s;
 }
 .preview-toggle.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+
+.preview-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+  padding: 24px; text-align: center;
+}
+.preview-empty p { font-size: 13px; color: var(--text-dim); }
+.preview-empty .folder-button { font-size: 12px; }
 
 .preview-content {
   flex: 1; overflow-y: auto; padding: 16px 20px;

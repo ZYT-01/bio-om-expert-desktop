@@ -8,7 +8,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 fn base_output_dir() -> PathBuf {
-    std::env::temp_dir().join("bio-om-output")
+    let base = dirs_next().unwrap_or_else(|| PathBuf::from("/tmp"));
+    base.join(".bio-om-expert").join("output")
 }
 
 // ── Skill Manifest (loaded at runtime, built-in fallback) ──
@@ -819,7 +820,15 @@ fn delete_history(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn check_path_exists(path: String) -> bool {
+    PathBuf::from(&path).exists()
+}
+
+#[tauri::command]
 fn open_output_folder(path: String) -> Result<(), String> {
+    if !PathBuf::from(&path).exists() {
+        return Err(format!("目录不存在: {}", path));
+    }
     #[cfg(target_os = "macos")]
     { Command::new("open").arg(&path).spawn().map_err(|e| e.to_string())?; }
     #[cfg(target_os = "windows")]
@@ -889,6 +898,7 @@ pub fn run() {
             check_prerequisites,
             orchestrate, run_pipeline, revise_output, read_output_file, list_output_files,
             open_output_folder, open_url, cancel_skill, get_history, get_history_detail, delete_history,
+            check_path_exists,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -32,6 +32,7 @@ function App() {
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
   const [showSource, setShowSource] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const loadHistory = useCallback(async () => {
@@ -77,6 +78,7 @@ function App() {
       } catch { /* */ }
       setLogs((p) => [...p, { type: "done", text: "✅ 全部完成！", time: new Date().toLocaleTimeString() }]);
       setRunning(false); setDone(true); setProgress(null); setPlan(null); loadHistory();
+      setPreviewVisible(true);
       if (outDir) loadPreviewFiles(outDir);
     }).then((f) => uns.push(f));
     return () => { uns.forEach((f) => f()); };
@@ -86,7 +88,7 @@ function App() {
     if (!input.trim() || running) return;
     doneFiredRef.current = false;
     setRunning(true); setDone(false); setOutputDir(null); setDocxPath(null); setPlan(null);
-    setPreviewFiles([]); setPreviewFile(null); setPreviewContent("");
+    setPreviewFiles([]); setPreviewFile(null); setPreviewContent(""); setPreviewVisible(false);
     setProgress({ step: 0, total: 100, name: "分析需求...", pct: 0 });
     setLogs([{ type: "system", text: `正在分析: ${input}`, time: new Date().toLocaleTimeString() }]);
 
@@ -113,17 +115,34 @@ function App() {
 
   const handleOpenFolder = async () => {
     if (!outputDir) return;
-    try { await invoke("open_output_folder", { path: outputDir }); } catch { /* */ }
+    try {
+      const exists = await invoke<boolean>("check_path_exists", { path: outputDir });
+      if (!exists) {
+        setLogs((p) => [...p, { type: "error", text: `目录不存在，可能已被清理: ${outputDir}`, time: new Date().toLocaleTimeString() }]);
+        return;
+      }
+      await invoke("open_output_folder", { path: outputDir });
+    } catch (e) {
+      setLogs((p) => [...p, { type: "error", text: `打开文件夹失败: ${e}`, time: new Date().toLocaleTimeString() }]);
+    }
   };
 
   const loadPreviewFiles = useCallback(async (dir: string) => {
     try {
       const files = await invoke<string[]>("list_output_files", { dir });
       setPreviewFiles(files);
-      if (files.length > 0 && !previewFile) {
+      if (files.length > 0) {
         handleSelectPreviewFile(dir, files[0]);
+      } else {
+        setPreviewContent("");
+        setPreviewFile(null);
       }
-    } catch { /* */ }
+    } catch (e) {
+      console.error("loadPreviewFiles failed:", e);
+      setPreviewFiles([]);
+      setPreviewFile(null);
+      setPreviewContent("");
+    }
   }, []);
 
   const handleSelectPreviewFile = async (dir: string, filename: string) => {
@@ -137,8 +156,10 @@ function App() {
   const handleSelectHistory = async (entry: HistoryEntry) => {
     setSelectedId(entry.id); setOutputDir(entry.output_dir);
     setDone(entry.status === "done"); setDocxPath(null); setPlan(null);
-    setShowSource(false);
+    setShowSource(false); setPreviewFile(null); setPreviewContent("");
+    setPreviewVisible(true);
     if (entry.status === "done") loadPreviewFiles(entry.output_dir);
+    else { setPreviewFiles([]); }
     try {
       const d = await invoke<HistoryEntry>("get_history_detail", { id: entry.id });
       setLogs([
@@ -176,11 +197,12 @@ function App() {
     doneFiredRef.current = false;
     setInput(""); setLogs([]); setOutputDir(null); setDocxPath(null);
     setDone(false); setProgress(null); setSelectedId(null); setPlan(null);
-    setPreviewFiles([]); setPreviewFile(null); setPreviewContent("");
+    setPreviewFiles([]); setPreviewFile(null); setPreviewContent(""); setPreviewVisible(false);
   };
 
   const handleRevise = async () => {
     if (!input.trim() || !outputDir || running) return;
+    doneFiredRef.current = false;
     setRunning(true); setDone(false);
     setProgress({ step: 0, total: 11, name: "分析修改需求...", pct: 0 });
     setLogs((p) => [
@@ -317,6 +339,9 @@ function App() {
                 {docxPath && (
                   <button onClick={handleOpenFolder} className="docx-button">📄 Word 文档</button>
                 )}
+                {!previewVisible && (
+                  <button onClick={() => setPreviewVisible(true)} className="preview-reopen-btn">📄 预览</button>
+                )}
                 <button onClick={handleNewConversation} className="new-task-button">＋ 新任务</button>
               </>
             )}
@@ -345,37 +370,44 @@ function App() {
           </div>
         </main>
 
-        {done && previewFiles.length > 0 && (
+        {done && outputDir && previewVisible && (
           <aside className="preview-panel">
             <div className="preview-header">
               <h3>📄 文件预览</h3>
-              <button className="preview-close" onClick={() => { setPreviewFiles([]); setPreviewFile(null); }}>
+              <button className="preview-close" onClick={() => setPreviewVisible(false)} title="关闭预览">
                 ✕
               </button>
             </div>
-            <div className="preview-tabs">
-              {previewFiles.map((f) => (
-                <button
-                  key={f}
-                  className={`preview-tab ${previewFile === f ? "active" : ""}`}
-                  onClick={() => outputDir && handleSelectPreviewFile(outputDir, f)}
-                >
-                  {f.replace(".md", "")}
-                </button>
-              ))}
-            </div>
-            <div className="preview-toolbar">
-              <button
-                className={`preview-toggle ${!showSource ? "active" : ""}`}
-                onClick={() => setShowSource(false)}
-              >
-                预览
-              </button>
-              <button
-                className={`preview-toggle ${showSource ? "active" : ""}`}
-                onClick={() => setShowSource(true)}
-              >
-                源码
+            {previewFiles.length === 0 ? (
+              <div className="preview-empty">
+                <p>无可预览的 Markdown 文件</p>
+                <button className="folder-button" onClick={handleOpenFolder}>📂 打开文件夹查看全部文件</button>
+              </div>
+            ) : (
+              <>
+                <div className="preview-tabs">
+                  {previewFiles.map((f) => (
+                    <button
+                      key={f}
+                      className={`preview-tab ${previewFile === f ? "active" : ""}`}
+                      onClick={() => outputDir && handleSelectPreviewFile(outputDir, f)}
+                    >
+                      {f.replace(".md", "")}
+                    </button>
+                  ))}
+                </div>
+                <div className="preview-toolbar">
+                  <button
+                    className={`preview-toggle ${!showSource ? "active" : ""}`}
+                    onClick={() => setShowSource(false)}
+                  >
+                    预览
+                  </button>
+                  <button
+                    className={`preview-toggle ${showSource ? "active" : ""}`}
+                    onClick={() => setShowSource(true)}
+                  >
+                    源码
               </button>
             </div>
             <div className="preview-content">
@@ -389,6 +421,8 @@ function App() {
                 </div>
               )}
             </div>
+              </>
+            )}
           </aside>
         )}
       </div>

@@ -1,0 +1,9 @@
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!-- 要求 Windows 10 (VersionNT >= 1000) 或更高版本 -->
+    <!-- Installed 条件确保卸载/升级时不触发此检查 -->
+    <Condition Message="此应用需要 Windows 10 或更高版本。请升级系统后重新安装。">
+      <![CDATA[Installed OR VersionNT >= 1000]]>
+    </Condition>
+  </Fragment>
+</Wix>
