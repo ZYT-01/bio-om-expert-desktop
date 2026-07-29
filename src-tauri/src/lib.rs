@@ -759,6 +759,96 @@ fn list_output_files(dir: String) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DashboardAsset {
+    path: String,
+    name: String,
+    size_kb: f64,
+    category: String,
+    date: String,
+    title: String,
+    summary: String,
+}
+
+#[tauri::command]
+fn scan_dashboard() -> Result<Vec<DashboardAsset>, String> {
+    let output_dir = base_output_dir();
+    let mut assets: Vec<DashboardAsset> = Vec::new();
+
+    if !output_dir.exists() {
+        return Ok(assets);
+    }
+
+    fn walk_dir(dir: &PathBuf, base: &PathBuf, assets: &mut Vec<DashboardAsset>) {
+        if assets.len() >= 200 { return; } // Safety limit
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if assets.len() >= 200 { break; }
+                let path = entry.path();
+                if path.is_dir() {
+                    walk_dir(&path, base, assets);
+                } else if path.extension().map_or(false, |ext| ext == "md") {
+                    let rel = path.strip_prefix(base).unwrap_or(&path);
+                    let name = path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let meta = entry.metadata().ok();
+                    let size = meta.as_ref().map(|m| m.len() as f64 / 1024.0).unwrap_or(0.0);
+                    let date = meta.as_ref()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| {
+                            let d: chrono::DateTime<chrono::Utc> = t.into();
+                            Some(d.format("%Y-%m-%d").to_string())
+                        }).unwrap_or_default();
+
+                    // Category detection by filename keywords
+                    let rel_str = rel.to_string_lossy().to_string();
+                    let name_lower = name.to_lowercase();
+                    let rel_lower = rel_str.to_lowercase();
+                    let category = if rel_lower.contains("report") || name_lower.contains("research") { "report" }
+                        else if rel_lower.contains("article") || name_lower.contains("推文") || name_lower.contains("科普") || name_lower.contains("draft") { "article" }
+                        else if rel_lower.contains("script") || name_lower.contains("脚本") || name_lower.contains("视频") || name_lower.contains("voiceover") || name_lower.contains("口播") { "script" }
+                        else if rel_lower.contains("image") || name_lower.contains("配图") || name_lower.contains("suggestion") { "image" }
+                        else { "other" };
+
+                    // Try to extract title from first line of file
+                    let (title, summary) = match fs::read_to_string(&path) {
+                        Ok(content) => {
+                            let first_line = content.lines().next().unwrap_or("").to_string();
+                            let title = first_line.trim_start_matches("# ").trim().to_string();
+                            let title = if title.is_empty() { name.trim_end_matches(".md").to_string() } else { title };
+                            let body: String = content.lines()
+                                .skip(1).take(8)
+                                .filter(|l| !l.trim().is_empty())
+                                .collect::<Vec<_>>().join(" ");
+                            // Safe char-based truncation for UTF-8 Chinese text
+                            let summary = if body.chars().count() > 120 {
+                                format!("{}...", body.chars().take(120).collect::<String>())
+                            } else { body };
+                            (title, summary)
+                        }
+                        Err(_) => (name.trim_end_matches(".md").to_string(), String::new()),
+                    };
+
+                    assets.push(DashboardAsset {
+                        path: rel_str,
+                        name,
+                        size_kb: format!("{:.1}", size).parse().unwrap_or(0.0),
+                        category: category.to_string(),
+                        date,
+                        title,
+                        summary,
+                    });
+                }
+            }
+        }
+    }
+
+    walk_dir(&output_dir, &output_dir, &mut assets);
+    assets.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.title.cmp(&b.title)));
+    Ok(assets)
+}
+
 #[tauri::command]
 fn check_prerequisites(app: AppHandle) -> serde_json::Value {
     let claude_ok = check_claude_installed();
@@ -822,6 +912,11 @@ fn delete_history(id: String) -> Result<(), String> {
 #[tauri::command]
 fn check_path_exists(path: String) -> bool {
     PathBuf::from(&path).exists()
+}
+
+#[tauri::command]
+fn get_base_output_dir() -> String {
+    base_output_dir().to_string_lossy().to_string()
 }
 
 #[tauri::command]
@@ -898,7 +993,7 @@ pub fn run() {
             check_prerequisites,
             orchestrate, run_pipeline, revise_output, read_output_file, list_output_files,
             open_output_folder, open_url, cancel_skill, get_history, get_history_detail, delete_history,
-            check_path_exists,
+            check_path_exists, scan_dashboard, get_base_output_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

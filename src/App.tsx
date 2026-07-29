@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import Dashboard from "./Dashboard";
 import "./App.css";
 
 interface LogEntry { type: "output" | "error" | "done" | "system" | "plan"; text: string; time: string; }
@@ -33,6 +34,7 @@ function App() {
   const [previewContent, setPreviewContent] = useState<string>("");
   const [showSource, setShowSource] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const loadHistory = useCallback(async () => {
@@ -237,6 +239,13 @@ function App() {
           {running ? "⚡ 运行中..." : "✓ 就绪"}
         </span>
         <button
+          className="dashboard-link"
+          onClick={() => setShowDashboard(true)}
+          title="资产仪表盘"
+        >
+          📊 仪表盘
+        </button>
+        <button
           className="feedback-link"
           onClick={() => invoke("open_url", { url: "https://github.com/ZYT-01/bio-om-expert-desktop/issues/new?template=bug_report.md" }).catch(() => {})}
           title="反馈问题或建议"
@@ -426,6 +435,8 @@ function App() {
           </aside>
         )}
       </div>
+
+      {showDashboard && <Dashboard onClose={() => setShowDashboard(false)} />}
     </div>
   );
 }
