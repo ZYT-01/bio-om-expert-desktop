@@ -35,17 +35,64 @@ jobs:
           name: windows-msi
           path: src-tauri/target/release/bundle/msi/*.msi
 
-  release:
+  package:
     needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
-      - run: |
-          mkdir release
-          cp macos-dmg/*.dmg release/
-          cp windows-msi/*.msi release/
+        with:
+          pattern: "*"
+          merge-multiple: true
+          path: artifacts/
+
+      - name: Assemble complete installation package
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"
+          PKG="Bio-OM-Expert_${VERSION}_完整安装包"
+
+          mkdir -p "${PKG}/Skills" "${PKG}/文档"
+
+          # Copy installers
+          cp artifacts/*.dmg "${PKG}/" 2>/dev/null || true
+          cp artifacts/*.msi "${PKG}/" 2>/dev/null || true
+
+          # Copy setup scripts
+          cp setup.sh setup.bat "${PKG}/"
+
+          # Copy Skills
+          if [ -d "skills-manifest" ]; then
+            cp skills-manifest/*.json "${PKG}/Skills/"
+          else
+            # Find skills JSON files
+            find . -path "*/skills-manifest/*.json" -exec cp {} "${PKG}/Skills/" \;
+          fi
+
+          # Generate docs
+          cp CHANGELOG.md README.md README-USER.md "${PKG}/文档/"
+
+          # Package
+          zip -r "${PKG}.zip" "${PKG}/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: complete-package
+          path: "Bio-OM-Expert_*-完整安装包.zip"
+
+  release:
+    needs: [build-macos, build-windows, package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          merge-multiple: true
+          path: release/
+
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*
-          generate_release_notes: false
+          generate_release_notes: true
           make_latest: true
