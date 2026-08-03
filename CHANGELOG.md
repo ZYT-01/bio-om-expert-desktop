@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.3.1] — 2026-08-03
+
+### Added
+- **5 个真正的 Claude Code Skill 实现文件** — 不再仅有 JSON 编排清单，Claude Code 可直接发现并执行
+  - `web-research`：全网搜索研究，生成结构化研究报告
+  - `url-research`：链接分析研究，按 URL 分节分析
+  - `local-research`：本地文档分析，支持 PDF/Word/Excel
+  - `report-generator`：报告整合，统一格式化已有研究素材
+  - `content-writing`：文案撰写与视频脚本，产出 9 种文件类型
+- **4 个内容创作智能体角色**（content-writing 内）：内容架构师、技术转译者、标题打磨师、视听转化师
+- **`CLAUDE.md` 全局配置** — 文件命名约定，确保产出符合仪表盘分类要求
+- **setup.sh 第 6 步**：自动挂载 DMG → 复制 App → `xattr -cr` 清除 Gatekeeper 隔离属性
+- **setup.sh 第 7 步**：CLAUDE.md 安装
+- **setup.sh Skills 双目录安装**：JSON → `~/Library/Application Support/`；SKILL.md → `~/.claude/skills/`
+- **`LSEnvironment` PATH 注入** — Info.plist 中配置 PATH，解决 GUI 启动找不到 `claude` 的问题
+- `rename_to_chinese` 新增 `research_report.md` → `研究报告.md` 映射
+- `ExecutionStep` 新增 `description` 和 `produces` 字段
+- **仪表盘 `.json` 文件扫描** — `scan_dashboard` 同时扫描 `.md` 和 `.json`
+- content-writing 同步输出 `image_suggestions.md`（Markdown）+ `配图建议.json`
+
+### Fixed
+- **仪表盘"研究报告"始终为 0** — 文件名含中文时无法匹配英文关键字。修复：增强中文关键字检测
+- **仪表盘"配图建议"始终为 0** — `.json` 文件被跳过。修复：支持 `.json` 扫描
+- **仪表盘分类缺失** — `interaction_design_video` 等文件名无法匹配。修复：提取 `classify_asset` 独立函数，添加 `video` 等关键字，移除父目录路径泄漏
+- **研究报告重复输出** — Claude 同时输出中英文版本。修复：CLAUDE.md 限定只输出英文文件名
+- **Skill 调用错位** — prompt 仅传 "运行 X skill" 导致 Claude 降级使用已有 skill。修复：embed skill 完整描述到 prompt
+- **Orchestrator prompt 信息不足** — 修复：构造富 prompt，含 skill 描述 + 预期产出 + 依赖规则
+- **setup.sh Skills 安装路径错误** — JSON 装到 `~/.claude/skills/` 但 App 读取路径不同
+- **GUI App 找不到 `claude`** — 修复：Info.plist `LSEnvironment` 注入 PATH
+- **编译后 App 白屏** — 改用 `npx tauri build` 完整打包
+- **二进制替换后代码签名失效** — 修复：`codesign --force --deep --sign -` 重签
+
+### Changed
+- `scan_dashboard` 分类逻辑重写为独立 `classify_asset` 函数，只检查文件名不含父目录路径
+- `run_pipeline` prompt 增强：嵌入 skill 描述 + 预期产出 + 执行角色
+- `orchestrate` 关键词路径构造富 prompt 替代 "运行 X skill"
+- Skill 输出文件名策略：保留英文关键字供仪表盘分类识别
+- Info.plist：版本号 → 1.3.1，新增 `LSEnvironment` 字典
+
 ## [1.3.0] — 2026-07-29
 
 ### Added

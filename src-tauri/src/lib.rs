@@ -856,6 +856,44 @@ struct DashboardAsset {
     summary: String,
 }
 
+fn classify_asset(name_lower: &str) -> &'static str {
+    // ── Report ──
+    // Matches: research_report, 研究报告, SOD研究报告, 01-研究报告-xxx
+    if name_lower.contains("research") || name_lower.contains("report")
+        || name_lower.contains("研究") || name_lower.contains("报告") || name_lower.contains("调研")
+        || name_lower.contains("_report")
+    {
+        return "report";
+    }
+    // ── Article / 推文 ──
+    // Matches: article_*, 推文, 科普, headline, outline, draft, 标题, 大纲, 草稿, 文案, 图文, interaction_design_article
+    if name_lower.contains("article") || name_lower.contains("推文") || name_lower.contains("科普")
+        || name_lower.contains("headline") || name_lower.contains("outline") || name_lower.contains("draft")
+        || name_lower.contains("标题") || name_lower.contains("大纲") || name_lower.contains("草稿")
+        || name_lower.contains("文案") || name_lower.contains("正文") || name_lower.contains("图文")
+        || name_lower.contains("engage")
+    {
+        return "article";
+    }
+    // ── Script / 视频脚本 ──
+    // Matches: script, 视频, 脚本, voiceover, 口播, scene, 分镜, 旁白, interaction_design_video, storyboard
+    if name_lower.contains("script") || name_lower.contains("视频") || name_lower.contains("脚本")
+        || name_lower.contains("voiceover") || name_lower.contains("口播") || name_lower.contains("scene")
+        || name_lower.contains("分镜") || name_lower.contains("旁白") || name_lower.contains("storyboard")
+        || name_lower.contains("video")
+    {
+        return "script";
+    }
+    // ── Image / 配图 ──
+    if name_lower.contains("image") || name_lower.contains("配图") || name_lower.contains("suggestion")
+        || name_lower.contains("图片") || name_lower.contains("视觉") || name_lower.contains("素材")
+    {
+        return "image";
+    }
+    // ── Other ──
+    "other"
+}
+
 #[tauri::command]
 fn scan_dashboard() -> Result<Vec<DashboardAsset>, String> {
     let output_dir = base_output_dir();
@@ -887,27 +925,11 @@ fn scan_dashboard() -> Result<Vec<DashboardAsset>, String> {
                             Some(d.format("%Y-%m-%d").to_string())
                         }).unwrap_or_default();
 
-                    // Category detection by filename keywords
+                    // Category detection by filename keywords only
+                    // (never use rel_lower — parent dir names leak keywords)
                     let rel_str = rel.to_string_lossy().to_string();
                     let name_lower = name.to_lowercase();
-                    let rel_lower = rel_str.to_lowercase();
-                    let category = if rel_lower.contains("report") || name_lower.contains("research")
-                        || name_lower.contains("报告") || name_lower.contains("研究") || name_lower.contains("调研")
-                        || name_lower.contains("_report") { "report" }
-                        else if rel_lower.contains("article") || name_lower.contains("推文") || name_lower.contains("科普")
-                        || name_lower.contains("draft") || name_lower.contains("headline") || name_lower.contains("标题")
-                        || name_lower.contains("outline") || name_lower.contains("大纲")
-                        || name_lower.contains("草稿") || name_lower.contains("文案") || name_lower.contains("正文")
-                        || name_lower.contains("图文") || name_lower.contains("engage")
-                        { "article" }
-                        else if rel_lower.contains("script") || name_lower.contains("脚本") || name_lower.contains("视频")
-                        || name_lower.contains("voiceover") || name_lower.contains("口播") || name_lower.contains("scene")
-                        || name_lower.contains("分镜") || name_lower.contains("旁白")
-                        { "script" }
-                        else if rel_lower.contains("image") || name_lower.contains("配图") || name_lower.contains("suggestion")
-                        || name_lower.contains("图片") || name_lower.contains("视觉") || name_lower.contains("素材")
-                        { "image" }
-                        else { "other" };
+                    let category = classify_asset(&name_lower);
 
                     // Try to extract title from file content
                     let (title, summary) = if path.extension().map_or(false, |ext| ext == "json") {
