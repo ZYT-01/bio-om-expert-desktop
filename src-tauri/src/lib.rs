@@ -26,12 +26,18 @@ struct SkillManifest {
     depends_on: Vec<String>,
     #[serde(default)]
     required_args: Vec<String>,
+    #[serde(default)]
+    produces: String,
+    #[serde(default)]
+    output_pattern: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExecutionStep {
     skill: String,
     display: String,
+    description: String,
+    produces: String,
     prompt: String,
 }
 
@@ -42,22 +48,51 @@ fn skill_dir(app: &AppHandle) -> PathBuf {
 
 fn seed_default_skills(app: &AppHandle) {
     let dir = skill_dir(app);
-    if dir.exists() { return; }
-    fs::create_dir_all(&dir).ok();
+    if !dir.exists() {
+        fs::create_dir_all(&dir).ok();
 
-    let builtins: &[(&str, &str)] = &[
-        ("web-research.json", include_str!("../../skills-manifest/web-research.json")),
-        ("url-research.json", include_str!("../../skills-manifest/url-research.json")),
-        ("local-research.json", include_str!("../../skills-manifest/local-research.json")),
-        ("report-generator.json", include_str!("../../skills-manifest/report-generator.json")),
-        ("content-writing.json", include_str!("../../skills-manifest/content-writing.json")),
-    ];
-    for (name, content) in builtins {
-        let path = dir.join(name);
-        if !path.exists() {
-            fs::write(&path, content).ok();
+        let builtins: &[(&str, &str)] = &[
+            ("web-research.json", include_str!("../../skills-manifest/web-research.json")),
+            ("url-research.json", include_str!("../../skills-manifest/url-research.json")),
+            ("local-research.json", include_str!("../../skills-manifest/local-research.json")),
+            ("report-generator.json", include_str!("../../skills-manifest/report-generator.json")),
+            ("content-writing.json", include_str!("../../skills-manifest/content-writing.json")),
+        ];
+        for (name, content) in builtins {
+            let path = dir.join(name);
+            if !path.exists() {
+                fs::write(&path, content).ok();
+            }
         }
     }
+    // Always seed SKILL.md and CLAUDE.md to keep them up-to-date
+    seed_claude_skills();
+}
+
+fn seed_claude_skills() {
+    let home = dirs_next().unwrap_or_else(|| PathBuf::from("/tmp"));
+    let claude_skills_dir = home.join(".claude").join("skills");
+
+    let skill_mds: &[(&str, &str)] = &[
+        ("web-research/SKILL.md", include_str!("../../skills/web-research.md")),
+        ("url-research/SKILL.md", include_str!("../../skills/url-research.md")),
+        ("local-research/SKILL.md", include_str!("../../skills/local-research.md")),
+        ("report-generator/SKILL.md", include_str!("../../skills/report-generator.md")),
+        ("content-writing/SKILL.md", include_str!("../../skills/content-writing.md")),
+    ];
+
+    for (rel_path, content) in skill_mds {
+        let path = claude_skills_dir.join(rel_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        fs::write(&path, content).ok();
+    }
+
+    // Seed CLAUDE.md
+    let claude_md = include_str!("../../CLAUDE.md");
+    fs::create_dir_all(home.join(".claude")).ok();
+    fs::write(home.join(".claude").join("CLAUDE.md"), claude_md).ok();
 }
 
 fn load_builtin_manifests() -> Vec<SkillManifest> {
@@ -157,16 +192,27 @@ fn resolve_dependencies<'a>(
 
 fn orchestrate_via_claude(input: &str, manifests: &[SkillManifest]) -> Option<Vec<ExecutionStep>> {
     let manifest_text: String = manifests.iter().map(|m| {
-        format!("- {}: {} (触发词: {})", m.name, m.description, m.trigger_patterns.join(", "))
-    }).collect::<Vec<_>>().join("\n");
+        format!("- **{}** ({})\n  描述: {}\n  产出: {}\n  依赖: {}",
+            m.name, m.display, m.description, m.produces,
+            if m.depends_on.is_empty() { "无".to_string() } else { m.depends_on.join(", ") })
+    }).collect::<Vec<_>>().join("\n\n");
 
     let prompt = format!(
         "你是一个内容运营工作流的编排器。用户输入了一段自然语言需求，你需要判断应该执行哪些 skill。\n\n\
-        可用 skills:\n{}\n\n\
-        用户输入: \"{}\"\n\n\
-        请以 JSON 数组格式返回执行计划，每个元素包含 skill(技能名)、prompt(给该 skill 的具体指令)。\n\
-        只返回 JSON，不要其他文字。例如:\n\
-        [{{\"skill\":\"content-writing\",\"prompt\":\"topic=SOD抗氧化机制科普\"}}]",
+         ## 可用 skills\n\n{}\n\n\
+         ## 依赖规则\n\
+         - report-generator 依赖 web-research / url-research / local-research（至少选一个）\n\
+         - content-writing 依赖 report-generator 或 web-research（至少选一个）\n\
+         - 研究类 skill（web/url/local-research）可以独立执行\n\n\
+         ## 编排要求\n\
+         - 如果用户需要内容产出（推文/脚本/文案），确保包含 content-writing\n\
+         - 如果用户需要研究数据但没有指定来源，默认使用 web-research\n\
+         - 依赖 skill 必须排在被依赖 skill 之前\n\
+         - 每个 skill 的 prompt 要具体，包含用户需求的关键信息\n\n\
+         用户输入: \"{}\"\n\n\
+         请以 JSON 数组格式返回执行计划，每个元素包含 skill(技能名)、prompt(给该 skill 的具体指令)。\n\
+         只返回 JSON，不要其他文字。例如:\n\
+         [{{\"skill\":\"content-writing\",\"prompt\":\"topic=SOD抗氧化机制科普\"}}]",
         manifest_text, input
     );
 
@@ -190,6 +236,8 @@ fn orchestrate_via_claude(input: &str, manifests: &[SkillManifest]) -> Option<Ve
                     manifest_map.get(&s.skill).map(|m| ExecutionStep {
                         skill: s.skill,
                         display: m.display.clone(),
+                        description: m.description.clone(),
+                        produces: m.produces.clone(),
                         prompt: s.prompt,
                     })
                 }).collect());
@@ -334,10 +382,11 @@ fn rename_to_chinese(dir: &str) {
         ("article_interaction.md", "图文互动设计.md"),
         ("video_script.md", "视频脚本.md"),
         ("voiceover.md", "口播稿.md"),
-        ("video_interaction.md", "视频互动设计.md"),
-        ("image_suggestions.json", "配图建议.json"),
-        ("headline_options.md", "标题备选.md"),
-        ("scene_prompts.md", "分镜提示词.md"),
+        ("article_engage.md", "视频互动设计.md"),
+        ("image_suggestions.md", "配图建议.md"),
+        ("article_headlines.md", "标题备选.md"),
+        ("script_scenes.md", "分镜提示词.md"),
+        ("research_report.md", "研究报告.md"),
     ];
     for (en, cn) in &mapping {
         let en_path = format!("{}/{}", dir, en);
@@ -400,21 +449,25 @@ async fn orchestrate(app: AppHandle, input: String) -> Result<Vec<ExecutionStep>
                     steps.push(ExecutionStep {
                         skill: dep.name.clone(),
                         display: dep.display.clone(),
-                        prompt: format!("运行 {} skill，topic={}", dep.name, input),
+                        description: dep.description.clone(),
+                        produces: dep.produces.clone(),
+                        prompt: format!(
+                            "你正在执行 Bio-OM Expert 的「{}」技能。\n技能描述：{}\n预期产出：{}\n\n任务：基于用户需求「{}」执行该技能，将输出文件保存到指定目录。",
+                            dep.display, dep.description, dep.produces, input
+                        ),
                     });
                 }
 
                 // Add the main skill last (dependencies come first)
-                let prompt = if top.name == "content-writing" {
-                    format!("运行 content-writing skill，topic={}", input)
-                } else if top.name == "web-research" {
-                    format!("运行 web-research skill，搜索主题：{}", input)
-                } else {
-                    format!("运行 {} skill，输入：{}", top.name, input)
-                };
+                let prompt = format!(
+                    "你正在执行 Bio-OM Expert 的「{}」技能。\n技能描述：{}\n预期产出：{}\n\n任务：基于用户需求「{}」执行该技能，将输出文件保存到指定目录。",
+                    top.display, top.description, top.produces, input
+                );
                 steps.push(ExecutionStep {
                     skill: top.name.clone(),
                     display: top.display.clone(),
+                    description: top.description.clone(),
+                    produces: top.produces.clone(),
                     prompt,
                 });
 
@@ -429,10 +482,29 @@ async fn orchestrate(app: AppHandle, input: String) -> Result<Vec<ExecutionStep>
     }
 
     // Ultimate fallback: default to content-writing
+    let fallback = manifests.iter().find(|m| m.name == "content-writing")
+        .cloned()
+        .unwrap_or_else(|| SkillManifest {
+            name: "content-writing".to_string(),
+            display: "文案撰写与视频脚本".to_string(),
+            description: "基于研究报告撰写推文、视频脚本、口播稿".to_string(),
+            produces: "推文草稿 + 视频脚本 + 口播稿 + 互动设计".to_string(),
+            trigger_patterns: vec![],
+            cli_invoke: String::new(),
+            estimated_time: String::new(),
+            depends_on: vec![],
+            required_args: vec![],
+            output_pattern: String::new(),
+        });
     Ok(vec![ExecutionStep {
-        skill: "content-writing".to_string(),
-        display: "文案撰写与视频脚本".to_string(),
-        prompt: format!("运行 content-writing skill，topic={}", input),
+        skill: fallback.name.clone(),
+        display: fallback.display.clone(),
+        description: fallback.description.clone(),
+        produces: fallback.produces.clone(),
+        prompt: format!(
+            "你正在执行 Bio-OM Expert 的「{}」技能。\n技能描述：{}\n预期产出：{}\n\n任务：基于用户需求「{}」执行该技能，将输出文件保存到指定目录。",
+            fallback.display, fallback.description, fallback.produces, input
+        ),
     }])
 }
 
@@ -486,7 +558,21 @@ async fn run_pipeline(
                 "name": format!("正在执行: {}", step.display),
             }).to_string());
 
-            let prompt = format!("{}，输出到 {}/", step.prompt, output_dir);
+            let prompt = format!(
+                "你正在执行 Bio-OM Expert 工作流的第 {step_num}/{total} 步：**{display}**。\n\n\
+                 ## 技能说明\n{description}\n\n\
+                 ## 预期产出\n{produces}\n\n\
+                 ## 具体任务\n{task}\n\n\
+                 ## 输出目录\n{output_dir}/\n\n\
+                 ## 重要规则\n\
+                 - 所有输出文件使用英文文件名（如 research_report.md、article_draft.md）\n\
+                 - 唯一的例外是「配图建议.json」（使用中文文件名）\n\
+                 - 不要创建中文文件名的 Markdown 副本\n\
+                 - 将文件保存到指定的输出目录",
+                step_num = i + 1, total = steps_count,
+                display = step.display, description = step.description,
+                produces = step.produces, task = step.prompt, output_dir = output_dir,
+            );
 
             let mut child = match Command::new("claude")
                 .arg("-p").arg(&prompt).arg("--output-format").arg("text")
@@ -787,7 +873,7 @@ fn scan_dashboard() -> Result<Vec<DashboardAsset>, String> {
                 let path = entry.path();
                 if path.is_dir() {
                     walk_dir(&path, base, assets);
-                } else if path.extension().map_or(false, |ext| ext == "md") {
+                } else if path.extension().map_or(false, |ext| ext == "md" || ext == "json") {
                     let rel = path.strip_prefix(base).unwrap_or(&path);
                     let name = path.file_name()
                         .map(|n| n.to_string_lossy().to_string())
@@ -805,14 +891,31 @@ fn scan_dashboard() -> Result<Vec<DashboardAsset>, String> {
                     let rel_str = rel.to_string_lossy().to_string();
                     let name_lower = name.to_lowercase();
                     let rel_lower = rel_str.to_lowercase();
-                    let category = if rel_lower.contains("report") || name_lower.contains("research") { "report" }
-                        else if rel_lower.contains("article") || name_lower.contains("推文") || name_lower.contains("科普") || name_lower.contains("draft") { "article" }
-                        else if rel_lower.contains("script") || name_lower.contains("脚本") || name_lower.contains("视频") || name_lower.contains("voiceover") || name_lower.contains("口播") { "script" }
-                        else if rel_lower.contains("image") || name_lower.contains("配图") || name_lower.contains("suggestion") { "image" }
+                    let category = if rel_lower.contains("report") || name_lower.contains("research")
+                        || name_lower.contains("报告") || name_lower.contains("研究") || name_lower.contains("调研")
+                        || name_lower.contains("_report") { "report" }
+                        else if rel_lower.contains("article") || name_lower.contains("推文") || name_lower.contains("科普")
+                        || name_lower.contains("draft") || name_lower.contains("headline") || name_lower.contains("标题")
+                        || name_lower.contains("outline") || name_lower.contains("大纲")
+                        || name_lower.contains("草稿") || name_lower.contains("文案") || name_lower.contains("正文")
+                        || name_lower.contains("图文") || name_lower.contains("engage")
+                        { "article" }
+                        else if rel_lower.contains("script") || name_lower.contains("脚本") || name_lower.contains("视频")
+                        || name_lower.contains("voiceover") || name_lower.contains("口播") || name_lower.contains("scene")
+                        || name_lower.contains("分镜") || name_lower.contains("旁白")
+                        { "script" }
+                        else if rel_lower.contains("image") || name_lower.contains("配图") || name_lower.contains("suggestion")
+                        || name_lower.contains("图片") || name_lower.contains("视觉") || name_lower.contains("素材")
+                        { "image" }
                         else { "other" };
 
-                    // Try to extract title from first line of file
-                    let (title, summary) = match fs::read_to_string(&path) {
+                    // Try to extract title from file content
+                    let (title, summary) = if path.extension().map_or(false, |ext| ext == "json") {
+                        // JSON files: use filename as title, size as summary
+                        let title = name.trim_end_matches(".json").to_string();
+                        (title, format!("JSON 数据文件 ({:.1}KB)", size))
+                    } else {
+                        match fs::read_to_string(&path) {
                         Ok(content) => {
                             let first_line = content.lines().next().unwrap_or("").to_string();
                             let title = first_line.trim_start_matches("# ").trim().to_string();
@@ -827,8 +930,12 @@ fn scan_dashboard() -> Result<Vec<DashboardAsset>, String> {
                             } else { body };
                             (title, summary)
                         }
-                        Err(_) => (name.trim_end_matches(".md").to_string(), String::new()),
-                    };
+                        Err(_) => {
+                            let ext_stripped = if name.ends_with(".json") { ".json" } else { ".md" };
+                            (name.trim_end_matches(ext_stripped).to_string(), String::new())
+                        }
+                    } // end match
+                    }; // end else (JSON vs MD branch)
 
                     assets.push(DashboardAsset {
                         path: rel_str,

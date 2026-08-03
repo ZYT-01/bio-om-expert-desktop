@@ -13,7 +13,7 @@ interface HistoryEntry {
   status: string; files: string[]; created_at: string;
 }
 
-interface ExecutionStep { skill: string; display: string; prompt: string; }
+interface ExecutionStep { skill: string; display: string; description: string; produces: string; prompt: string; }
 
 interface ProgressInfo { step: number; total: number; name: string; pct: number; }
 
