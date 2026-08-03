@@ -62,12 +62,20 @@ jobs:
           # Copy setup scripts
           cp setup.sh setup.bat "${PKG}/"
 
-          # Copy Skills
+          # Copy Skills JSON (manifests)
           if [ -d "skills-manifest" ]; then
             cp skills-manifest/*.json "${PKG}/Skills/"
-          else
-            # Find skills JSON files
-            find . -path "*/skills-manifest/*.json" -exec cp {} "${PKG}/Skills/" \;
+          fi
+
+          # Copy Skills MD (SKILL.md implementations)
+          if [ -d "skills" ]; then
+            mkdir -p "${PKG}/Skills/skills"
+            cp skills/*.md "${PKG}/Skills/skills/"
+          fi
+
+          # Copy CLAUDE.md
+          if [ -f "CLAUDE.md" ]; then
+            cp CLAUDE.md "${PKG}/Skills/"
           fi
 
           # Generate docs
