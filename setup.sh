@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bio-OM Expert v1.3.1 — 一键安装脚本
+# Bio-OM Expert v1.3.2 — 一键安装脚本
 # 适用于 macOS / Linux
 
 set -e
@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 echo ""
 echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}  Bio-OM Expert v1.3.1 安装向导${NC}"
+echo -e "${CYAN}  Bio-OM Expert v1.3.2 安装向导${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo ""
 

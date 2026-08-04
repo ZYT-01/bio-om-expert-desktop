@@ -1,10 +1,10 @@
 @echo off
-REM Bio-OM Expert v1.3.1 — Windows 一键安装脚本
+REM Bio-OM Expert v1.3.2 — Windows 一键安装脚本
 setlocal enabledelayedexpansion
 
 echo.
 echo ========================================
-echo   Bio-OM Expert v1.3.1 安装向导 (Windows^)
+echo   Bio-OM Expert v1.3.2 安装向导 (Windows^)
 echo ========================================
 echo.
 
